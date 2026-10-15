@@ -134,6 +134,7 @@ class LendingRepository extends BaseRepository {
     required Money amount,
     DateTime? date,
     String? notes,
+    String? accountId,
   }) =>
       guard(() async {
         if (amount.isZero || amount.isNegative) {
@@ -145,9 +146,16 @@ class LendingRepository extends BaseRepository {
           throw const ValidationException('This is already fully settled.');
         }
 
+        // Repaid money does not have to land back in the same account the
+        // principal left from — the friend might hand over cash instead of a
+        // bank transfer, say. Defaults to the original account when the
+        // caller does not choose one.
+        final targetAccountId = accountId ?? lending.accountId;
+
         final occurredOn = date ?? DateTime.now();
         final txRef = FirebaseService.transactions(userId).doc();
         final lendingRef = _col.doc(lending.id);
+        final accountRef = FirebaseService.accounts(userId).doc(targetAccountId);
 
         // Being paid back moves money in; paying back what you borrowed moves
         // it out — the opposite of the principal's own direction.
@@ -158,6 +166,18 @@ class LendingRepository extends BaseRepository {
         await db.runTransaction((tx) async {
           final snapshot = await tx.get(lendingRef);
           if (!snapshot.exists) throw const NotFoundException();
+
+          final account = await tx.get(accountRef);
+          if (!account.exists) throw const NotFoundException();
+
+          final accountCurrency =
+              account.asJson.str('currency', fallback: amount.currency);
+          if (accountCurrency != amount.currency) {
+            throw ValidationException(
+              'That account holds $accountCurrency. Choose an account in '
+              '${amount.currency} instead.',
+            );
+          }
 
           final outstanding = snapshot.asJson.money('outstanding');
           if (amount > outstanding) {
@@ -173,7 +193,7 @@ class LendingRepository extends BaseRepository {
 
           tx.set(txRef, {
             'user_id': userId,
-            'account_id': lending.accountId,
+            'account_id': targetAccountId,
             'category_id': null,
             'type': TransactionType.transfer.wire,
             ...moneyFields('amount', amount),
@@ -196,7 +216,7 @@ class LendingRepository extends BaseRepository {
             ...createdFields(),
           });
 
-          tx.update(FirebaseService.accounts(userId).doc(lending.accountId), {
+          tx.update(accountRef, {
             minorKey('current_balance'): FieldValue.increment(
               direction == TransferDirection.incoming
                   ? amount.minorUnits

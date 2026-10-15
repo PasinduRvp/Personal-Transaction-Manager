@@ -267,12 +267,14 @@ class LendingController extends AsyncNotifier<List<LendingRecord>> {
     required Money amount,
     DateTime? date,
     String? notes,
+    String? accountId,
   }) async {
     await ref.read(lendingRepositoryProvider).recordRepayment(
           lending: lending,
           amount: amount,
           date: date,
           notes: notes,
+          accountId: accountId,
         );
     ref.invalidate(lendingHistoryProvider(lending.id));
     ref.invalidate(accountsControllerProvider);

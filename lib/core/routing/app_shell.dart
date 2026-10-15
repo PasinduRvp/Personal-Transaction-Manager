@@ -217,7 +217,14 @@ class AddMenuSheet extends StatelessWidget {
                   '${AppRoutes.transactionAdd}?type=${TransactionType.transfer.wire}',
                 ),
               ),
-  
+              _AddOption(
+                icon: Icons.handshake_outlined,
+                color: context.colors.primary,
+                title: 'Lending',
+                subtitle: 'Money lent to, or borrowed from, someone',
+                onTap: () => _go(context, AppRoutes.lendingAdd),
+              ),
+
               AppSpacing.gapSm,
               const Divider(),
               AppSpacing.gapSm,

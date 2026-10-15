@@ -9,6 +9,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/app_date_utils.dart';
 import '../../../core/utils/money.dart';
 import '../../../core/utils/validators.dart';
+import '../../../shared/models/account.dart';
 import '../../../shared/models/lending.dart';
 import '../../../shared/models/transaction.dart';
 import '../../../shared/providers/account_providers.dart';
@@ -292,6 +293,7 @@ class _RepaymentSheetState extends ConsumerState<RepaymentSheet> {
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
   DateTime _date = DateTime.now();
+  Account? _account;
   bool _isSubmitting = false;
 
   @override
@@ -309,6 +311,11 @@ class _RepaymentSheetState extends ConsumerState<RepaymentSheet> {
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    if (_account == null) {
+      AppFeedback.showValidation(context, 'Choose an account.');
+      return;
+    }
 
     final currency = widget.lending.currency;
     final amount = Money.tryParse(_amountController.text, currency);
@@ -334,6 +341,7 @@ class _RepaymentSheetState extends ConsumerState<RepaymentSheet> {
             notes: _noteController.text.trim().isEmpty
                 ? null
                 : _noteController.text.trim(),
+            accountId: _account?.id,
           );
 
       if (!mounted) return;
@@ -349,6 +357,8 @@ class _RepaymentSheetState extends ConsumerState<RepaymentSheet> {
   @override
   Widget build(BuildContext context) {
     final currency = widget.lending.currency;
+    final accounts = ref.watch(activeAccountsProvider);
+    _account ??= ref.read(accountByIdProvider(widget.lending.accountId));
 
     return SafeArea(
       child: Padding(
@@ -391,6 +401,32 @@ class _RepaymentSheetState extends ConsumerState<RepaymentSheet> {
                     initial: _date,
                   );
                   if (picked != null) setState(() => _date = picked);
+                },
+              ),
+              AppSpacing.gapLg,
+
+              PickerField(
+                label: 'Into account',
+                isRequired: true,
+                value: _account?.name,
+                leading: _account == null
+                    ? null
+                    : IconBadge(
+                        icon: _account!.icon,
+                        color: _account!.color,
+                        size: 24,
+                        iconSize: 14,
+                      ),
+                onTap: () async {
+                  final picked = await AccountPicker.show(
+                    context,
+                    accounts: accounts,
+                    selectedId: _account?.id,
+                    title: widget.lending.kind.isReceivable
+                        ? 'Which account received it?'
+                        : 'Which account paid it?',
+                  );
+                  if (picked != null) setState(() => _account = picked);
                 },
               ),
               AppSpacing.gapLg,
