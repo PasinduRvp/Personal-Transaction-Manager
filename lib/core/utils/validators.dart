@@ -113,6 +113,17 @@ class Validators {
     return null;
   }
 
+  /// A day of the month for a recurring date like a credit card statement.
+  /// Optional, like the other card fields: left blank when the user does not
+  /// want a reminder.
+  static String? dayOfMonth(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) return 'Enter a whole number';
+    if (parsed < 1 || parsed > 31) return 'Choose a day between 1 and 31';
+    return null;
+  }
+
   static String? reminderDays(String? value) {
     if (value == null || value.trim().isEmpty) return null;
     final parsed = int.tryParse(value.trim());

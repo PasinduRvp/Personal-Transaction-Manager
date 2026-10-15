@@ -54,6 +54,12 @@ class _ProfileBody extends ConsumerWidget {
     final accounts = ref.watch(activeAccountsProvider).length;
     final budgets = ref.watch(budgetsControllerProvider).valueOrNull?.length ?? 0;
     final goals = ref.watch(savingsControllerProvider).valueOrNull?.length ?? 0;
+    final lendings = ref
+            .watch(lendingControllerProvider)
+            .valueOrNull
+            ?.where((l) => !l.isSettled)
+            .length ??
+        0;
     final pendingImports =
         ref.watch(pendingCandidateCountProvider).valueOrNull ?? 0;
     final unread = ref.watch(unreadNotificationCountProvider).valueOrNull ?? 0;
@@ -98,6 +104,13 @@ class _ProfileBody extends ConsumerWidget {
                 title: 'Savings goals',
                 trailing: '$goals',
                 onTap: () => context.push(AppRoutes.savings),
+              ),
+              const Divider(height: 1, indent: AppSpacing.lg),
+              _MenuRow(
+                icon: Icons.handshake_outlined,
+                title: 'Lending',
+                trailing: '$lendings',
+                onTap: () => context.push(AppRoutes.lending),
               ),
             ],
           ),

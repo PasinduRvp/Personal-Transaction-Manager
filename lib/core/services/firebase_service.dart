@@ -119,6 +119,9 @@ class FirebaseService {
   ]) =>
       savingsGoals(uid).doc(goalId).collection(Paths.contributions);
 
+  static CollectionReference<Map<String, dynamic>> lendings([String? uid]) =>
+      _sub(Paths.lendings, uid);
+
   static CollectionReference<Map<String, dynamic>> bills([String? uid]) =>
       _sub(Paths.bills, uid);
 
@@ -189,6 +192,7 @@ class Paths {
   static const String budgets = 'budgets';
   static const String savingsGoals = 'savingsGoals';
   static const String contributions = 'contributions';
+  static const String lendings = 'lendings';
   static const String bills = 'bills';
   static const String subscriptions = 'subscriptions';
   static const String recurring = 'recurringTransactions';

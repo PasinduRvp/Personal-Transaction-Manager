@@ -90,6 +90,11 @@ class CategoryPicker {
     String? selectedId,
     String title = 'Select category',
     bool allowNone = false,
+    /// When set, a "New category" tile appears in the grid. Tapping it runs
+    /// this callback — typically a small creation dialog that saves through
+    /// `CategoryRepository` — and whatever it returns is popped as the
+    /// picker's own result, so the caller never has to open the picker twice.
+    Future<Category?> Function(BuildContext context)? onCreateNew,
   }) {
     final available = categories.where((c) => !c.isArchived).toList();
 
@@ -106,7 +111,7 @@ class CategoryPicker {
                 child: const Text('Clear'),
               )
             : null,
-        child: available.isEmpty
+        child: available.isEmpty && onCreateNew == null
             ? const EmptyState(
                 icon: Icons.category_outlined,
                 title: 'No categories',
@@ -122,8 +127,50 @@ class CategoryPicker {
                   crossAxisSpacing: AppSpacing.md,
                   childAspectRatio: 0.92,
                 ),
-                itemCount: available.length,
+                itemCount: available.length + (onCreateNew != null ? 1 : 0),
                 itemBuilder: (context, index) {
+                  if (onCreateNew != null && index == available.length) {
+                    return InkWell(
+                      onTap: () async {
+                        final created = await onCreateNew(context);
+                        if (created != null && context.mounted) {
+                          Navigator.of(context).pop(created);
+                        }
+                      },
+                      borderRadius: AppRadius.mdAll,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: AppRadius.mdAll,
+                          border: Border.all(
+                            color: context.colors.outline,
+                            style: BorderStyle.solid,
+                          ),
+                        ),
+                        padding: const EdgeInsets.all(AppSpacing.sm),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            IconBadge(
+                              icon: Icons.add_rounded,
+                              color: context.colors.primary,
+                              size: 38,
+                            ),
+                            AppSpacing.gapSm,
+                            Text(
+                              'New category',
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: context.text.labelMedium?.copyWith(
+                                color: context.colors.onSurface,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
                   final category = available[index];
                   final isSelected = category.id == selectedId;
                   return InkWell(

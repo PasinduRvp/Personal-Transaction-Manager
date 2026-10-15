@@ -155,6 +155,7 @@ class UserSettings extends Equatable {
         NotificationKind.ocrCompleted => notifyOcrCompleted,
         NotificationKind.ocrFailed => notifyOcrFailed,
         NotificationKind.goalReached => true,
+        NotificationKind.creditCardDue => notifyBillDue,
       };
 
   factory UserSettings.fromJson(Json json) => UserSettings(

@@ -9,6 +9,7 @@ import '../repositories/bill_repository.dart';
 import '../repositories/budget_repository.dart';
 import '../repositories/category_repository.dart';
 import '../repositories/document_repository.dart';
+import '../repositories/lending_repository.dart';
 import '../repositories/maintenance_runner.dart';
 import '../repositories/notification_repository.dart';
 import '../repositories/ocr_repository.dart';
@@ -71,6 +72,10 @@ final budgetRepositoryProvider = Provider<BudgetRepository>(
 
 final savingsRepositoryProvider = Provider<SavingsRepository>(
   (ref) => SavingsRepository(firestore: ref.watch(firestoreProvider)),
+);
+
+final lendingRepositoryProvider = Provider<LendingRepository>(
+  (ref) => LendingRepository(firestore: ref.watch(firestoreProvider)),
 );
 
 final billRepositoryProvider = Provider<BillRepository>(

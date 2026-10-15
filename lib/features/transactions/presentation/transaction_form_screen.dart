@@ -34,11 +34,17 @@ class TransactionFormScreen extends ConsumerStatefulWidget {
     super.key,
     this.transactionId,
     this.initialType,
+    this.initialToAccountId,
   });
 
   /// Null when adding.
   final String? transactionId;
   final TransactionType? initialType;
+
+  /// Pre-selects the destination account of a new transfer — the "Pay credit
+  /// card" shortcut on an account's own screen uses this so the card does not
+  /// have to be picked twice.
+  final String? initialToAccountId;
 
   bool get isEditing => transactionId != null;
 
@@ -55,6 +61,7 @@ class _TransactionFormScreenState
   final _descriptionController = TextEditingController();
   final _notesController = TextEditingController();
   final _referenceController = TextEditingController();
+  final _feeController = TextEditingController();
 
   TransactionType _type = TransactionType.expense;
   Account? _account;
@@ -66,6 +73,7 @@ class _TransactionFormScreenState
   bool _isLoaded = false;
   List<DuplicateMatch> _duplicates = const [];
   bool _duplicatesDismissed = false;
+  bool _toAccountApplied = false;
 
   @override
   void initState() {
@@ -80,6 +88,7 @@ class _TransactionFormScreenState
     _descriptionController.dispose();
     _notesController.dispose();
     _referenceController.dispose();
+    _feeController.dispose();
     super.dispose();
   }
 
@@ -123,6 +132,15 @@ class _TransactionFormScreenState
     return Money.tryParse(_amountController.text, currency);
   }
 
+  /// The transfer fee, if one was entered. Null rather than zero when blank, so
+  /// `createTransfer` can tell "no fee" apart from "a fee of zero".
+  Money? get _fee {
+    final String currency =
+        _account?.currency ?? ref.read(currencyProvider);
+    if (_feeController.text.trim().isEmpty) return null;
+    return Money.tryParse(_feeController.text, currency);
+  }
+
   /// Looks for an existing transaction that resembles this one.
   ///
   /// Advisory only, and only when there is enough to compare: a warning is more
@@ -156,6 +174,77 @@ class _TransactionFormScreenState
       // A failed duplicate check must not block entry; the save path is
       // unaffected.
       if (mounted) setState(() => _duplicates = const []);
+    }
+  }
+
+  /// Opens a small dialog to create a category on the spot, for when the one
+  /// the user needs is not in the list yet.
+  ///
+  /// Kind follows the transaction's own type: a category made while entering
+  /// an expense is an expense category, and the same for income. The new
+  /// category otherwise gets a default icon and a colour derived from its id,
+  /// same as any category that has never been customised — full control over
+  /// those stays on the dedicated category screen.
+  Future<Category?> _createCategory(BuildContext dialogContext) async {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final kind =
+        _type == TransactionType.income ? CategoryKind.income : CategoryKind.expense;
+
+    final name = await showDialog<String>(
+      context: dialogContext,
+      builder: (context) => AlertDialog(
+        title: const Text('New category'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Category name'),
+            validator: Validators.categoryName,
+            onFieldSubmitted: (value) {
+              if (formKey.currentState?.validate() ?? false) {
+                Navigator.of(context).pop(value.trim());
+              }
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() ?? false) {
+                Navigator.of(context).pop(controller.text.trim());
+              }
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (name == null || name.isEmpty) return null;
+
+    final now = DateTime.now();
+    try {
+      return await ref.read(categoriesControllerProvider.notifier).create(
+            Category(
+              id: '',
+              userId: '',
+              name: name,
+              kind: kind,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+    } on Object catch (error) {
+      if (mounted) AppFeedback.showError(context, error);
+      return null;
     }
   }
 
@@ -213,6 +302,7 @@ class _TransactionFormScreenState
             description: _nullIfEmpty(_descriptionController.text),
             notes: _nullIfEmpty(_notesController.text),
             paymentMethod: _paymentMethod,
+            fee: _fee,
           );
         }
       } else {
@@ -295,6 +385,18 @@ class _TransactionFormScreenState
 
   Widget _buildForm(BuildContext context) {
     final accounts = ref.watch(activeAccountsProvider);
+
+    if (!widget.isEditing &&
+        !_toAccountApplied &&
+        widget.initialToAccountId != null) {
+      _toAccountApplied = true;
+      for (final candidate in accounts) {
+        if (candidate.id == widget.initialToAccountId) {
+          _toAccount = candidate;
+          break;
+        }
+      }
+    }
     final categories = ref.watch(
       categoriesByKindProvider(
         _type == TransactionType.income
@@ -446,6 +548,7 @@ class _TransactionFormScreenState
                       categories: categories,
                       selectedId: _category?.id,
                       allowNone: true,
+                      onCreateNew: _createCategory,
                     );
                     if (picked != null) {
                       setState(() => _category =
@@ -454,6 +557,23 @@ class _TransactionFormScreenState
                   },
                 ),
               AppSpacing.gapLg,
+
+              if (_type.isTransfer && !widget.isEditing) ...[
+                AmountField(
+                  controller: _feeController,
+                  currency: currency,
+                  label: 'Fee (optional)',
+                  helperText: 'What the bank charges for this transfer',
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) return null;
+                    final fee = Money.tryParse(value, currency);
+                    if (fee == null) return 'Enter a valid amount';
+                    if (fee.isNegative) return 'The fee cannot be negative';
+                    return null;
+                  },
+                ),
+                AppSpacing.gapLg,
+              ],
 
               if (!_type.isTransfer) ...[
                 TextFormField(

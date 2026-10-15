@@ -52,6 +52,12 @@ class AppRoutes {
   static String savingsDetail(String id) => '/savings/$id';
   static String savingsEdit(String id) => '/savings/$id/edit';
 
+  // --- Lending --------------------------------------------------------------
+  static const String lending = '/lending';
+  static const String lendingAdd = '/lending/add';
+
+  static String lendingDetail(String id) => '/lending/$id';
+
   // --- Bills, subscriptions, recurring ------------------------------------
   static const String bills = '/bills';
   static const String billAdd = '/bills/add';

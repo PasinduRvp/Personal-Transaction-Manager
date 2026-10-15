@@ -216,6 +216,16 @@ class _Body extends ConsumerWidget {
 
   final Account account;
 
+  static String _dueLabel(Account account) {
+    final due = account.nextPaymentDueDate!;
+    final days = account.daysUntilPaymentDue!;
+    final date = DateDisplay.dayMonthYear(due);
+    if (days == 0) return '$date · Due today';
+    if (days == 1) return '$date · Due tomorrow';
+    if (days < 0) return '$date · Overdue';
+    return '$date · In $days days';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activity = ref.watch(accountActivityProvider(account.id));
@@ -257,6 +267,21 @@ class _Body extends ConsumerWidget {
                         account.creditLimit != null) ...[
                       AppSpacing.gapLg,
                       _CreditUsage(account: account),
+                    ],
+                    if (account.type.isCredit) ...[
+                      AppSpacing.gapLg,
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () => context.push(
+                            '${AppRoutes.transactionAdd}'
+                            '?type=${TransactionType.transfer.wire}'
+                            '&toAccount=${account.id}',
+                          ),
+                          icon: const Icon(Icons.payment_outlined),
+                          label: const Text('Pay credit card'),
+                        ),
+                      ),
                     ],
                   ],
                 ),
@@ -331,6 +356,14 @@ class _Body extends ConsumerWidget {
                         label: 'Provider',
                         icon: Icons.account_balance_outlined,
                         value: account.institutionName,
+                      ),
+                    ],
+                    if (account.nextPaymentDueDate != null) ...[
+                      const Divider(height: 1),
+                      DetailRow(
+                        label: 'Payment due',
+                        icon: Icons.event_available_outlined,
+                        value: _dueLabel(account),
                       ),
                     ],
                     const Divider(height: 1),

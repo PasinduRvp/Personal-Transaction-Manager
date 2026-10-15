@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/constants/enums.dart';
 import '../../core/services/firebase_service.dart';
 import '../../core/utils/app_date_utils.dart';
+import '../models/account.dart';
 import '../models/json_map.dart';
 import 'base_repository.dart';
 import 'ledger_writer.dart';
@@ -53,6 +54,7 @@ class MaintenanceRunner extends BaseRepository {
       final posted = await _postDueRecurring();
       final overdue = await _advanceOverdueBills();
       final renewed = await _rollSubscriptions();
+      await _sendCreditCardDueReminders();
       await _sweepNotifications();
 
       await profileRef.update({
@@ -286,6 +288,64 @@ class MaintenanceRunner extends BaseRepository {
 
     if (rolled > 0) await batch.commit();
     return rolled;
+  }
+
+  // -------------------------------------------------------------------------
+  // Credit cards
+  // -------------------------------------------------------------------------
+
+  /// Reminds about a credit card payment coming due within three days.
+  ///
+  /// One reminder per due date, not per launch: the id is derived from the
+  /// account and that occurrence's date, the same trick `_postDueRecurring`
+  /// uses, so opening the app five times in the reminder window writes the
+  /// notification once.
+  Future<void> _sendCreditCardDueReminders() async {
+    final settings = await FirebaseService.settingsDoc(userId).get();
+    final remindersOn =
+        settings.exists && settings.asJson.boolVal('notify_bill_due', fallback: true);
+    if (!remindersOn) return;
+
+    final cards = await FirebaseService.accounts(userId)
+        .where('type', isEqualTo: AccountType.creditCard.wire)
+        .get();
+
+    for (final doc in cards.docs) {
+      final data = doc.asJson;
+      if (data.boolVal('is_archived')) continue;
+
+      final account = Account.fromJson(data);
+      final due = account.nextPaymentDueDate;
+      final daysUntil = account.daysUntilPaymentDue;
+      if (due == null || daysUntil == null) continue;
+      if (daysUntil < 0 || daysUntil > 3) continue;
+
+      final id = 'cc_due_${account.id}_${dateOnly(due)}';
+      final ref = FirebaseService.notifications(userId).doc(id);
+
+      // No `create()` on this SDK's DocumentReference, so the existence check
+      // and the write are done as one Firestore transaction instead — the
+      // same guard `_createIfAbsent` gives the recurring-transaction writes.
+      await db.runTransaction((tx) async {
+        final existing = await tx.get(ref);
+        if (existing.exists) return;
+
+        tx.set(ref, {
+          'user_id': userId,
+          'kind': NotificationKind.creditCardDue.wire,
+          'title': 'Payment due for ${account.name}',
+          'body': daysUntil == 0
+              ? 'Your payment is due today.'
+              : 'Your payment is due in $daysUntil '
+                  '${daysUntil == 1 ? 'day' : 'days'}.',
+          'is_read': false,
+          'entity_type': 'account',
+          'entity_id': account.id,
+          'payload': const <String, dynamic>{},
+          ...createdFields(),
+        });
+      });
+    }
   }
 
   // -------------------------------------------------------------------------

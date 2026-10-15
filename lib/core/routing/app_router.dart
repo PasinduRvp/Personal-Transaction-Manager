@@ -17,6 +17,9 @@ import '../../features/categories/presentation/categories_screen.dart';
 import '../../features/dashboard/presentation/dashboard_screen.dart';
 import '../../features/documents/presentation/documents_screen.dart';
 import '../../features/documents/presentation/import_history_screen.dart';
+import '../../features/lending/presentation/lending_detail_screen.dart';
+import '../../features/lending/presentation/lending_form_screen.dart';
+import '../../features/lending/presentation/lending_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/ocr/presentation/import_processing_screen.dart';
 import '../../features/ocr/presentation/ocr_review_screen.dart';
@@ -178,6 +181,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           initialType: TransactionType.fromWire(
             state.uri.queryParameters['type'],
           ),
+          initialToAccountId: state.uri.queryParameters['toAccount'],
         ),
       ),
       GoRoute(
@@ -281,6 +285,24 @@ final routerProvider = Provider<GoRouter>((ref) {
             ),
           ),
         ],
+      ),
+
+      GoRoute(
+        path: AppRoutes.lending,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => const LendingScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.lendingAdd,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => const LendingFormScreen(),
+      ),
+      GoRoute(
+        path: '/lending/:id',
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => LendingDetailScreen(
+          lendingId: state.pathParameters['id']!,
+        ),
       ),
 
       GoRoute(

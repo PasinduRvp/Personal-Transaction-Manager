@@ -1,11 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants/enums.dart';
 import '../../core/utils/money.dart';
 import '../models/bill.dart';
 import '../models/budget.dart';
 import '../models/calculations.dart';
+import '../models/lending.dart';
 import '../models/savings_goal.dart';
 import '../models/subscription.dart';
+import '../models/transaction.dart';
 import 'account_providers.dart';
 import 'auth_providers.dart';
 import 'dashboard_providers.dart';
@@ -222,6 +225,111 @@ final savingsTotalsProvider =
     target: target,
     percent: target.isZero ? 0.0 : saved.percentOf(target).clamp(0, 100),
   );
+});
+
+// ---------------------------------------------------------------------------
+// Lending — money lent to, or borrowed from, someone who is not an account
+// ---------------------------------------------------------------------------
+
+class LendingController extends AsyncNotifier<List<LendingRecord>> {
+  @override
+  Future<List<LendingRecord>> build() async {
+    final userId = ref.watch(currentUserIdProvider);
+    if (userId == null) return const [];
+    return ref.watch(lendingRepositoryProvider).fetchAll();
+  }
+
+  Future<LendingRecord> create({
+    required String personName,
+    required LendingKind kind,
+    required Money principal,
+    required String accountId,
+    DateTime? date,
+    String? notes,
+    DateTime? dueDate,
+  }) async {
+    final created = await ref.read(lendingRepositoryProvider).create(
+          personName: personName,
+          kind: kind,
+          principal: principal,
+          accountId: accountId,
+          date: date,
+          notes: notes,
+          dueDate: dueDate,
+        );
+    ref.invalidate(accountsControllerProvider);
+    await _reload();
+    return created;
+  }
+
+  Future<void> recordRepayment({
+    required LendingRecord lending,
+    required Money amount,
+    DateTime? date,
+    String? notes,
+  }) async {
+    await ref.read(lendingRepositoryProvider).recordRepayment(
+          lending: lending,
+          amount: amount,
+          date: date,
+          notes: notes,
+        );
+    ref.invalidate(lendingHistoryProvider(lending.id));
+    ref.invalidate(accountsControllerProvider);
+    await _reload();
+  }
+
+  Future<void> save(LendingRecord lending) async {
+    await ref.read(lendingRepositoryProvider).update(lending);
+    await _reload();
+  }
+
+  Future<void> delete(String id) async {
+    await ref.read(lendingRepositoryProvider).delete(id);
+    ref.invalidate(lendingHistoryProvider(id));
+    ref.invalidate(accountsControllerProvider);
+    await _reload();
+  }
+
+  Future<void> refresh() => _reload();
+
+  Future<void> _reload() async {
+    ref.invalidateSelf();
+    await future;
+  }
+}
+
+final lendingControllerProvider =
+    AsyncNotifierProvider<LendingController, List<LendingRecord>>(
+  LendingController.new,
+);
+
+final lendingByIdProvider = Provider.family<LendingRecord?, String>((ref, id) {
+  final lendings = ref.watch(lendingControllerProvider).valueOrNull;
+  if (lendings == null) return null;
+  for (final lending in lendings) {
+    if (lending.id == id) return lending;
+  }
+  return null;
+});
+
+final lendingHistoryProvider =
+    FutureProvider.family<List<Transaction>, String>((ref, lendingId) {
+  return ref.watch(lendingRepositoryProvider).fetchHistory(lendingId);
+});
+
+/// What you're owed minus what you owe, across open lendings in the app's
+/// currency — the net figure a summary card wants.
+final lendingNetProvider = Provider<Money>((ref) {
+  final currency = ref.watch(currencyProvider);
+  final lendings = ref.watch(lendingControllerProvider).valueOrNull ?? const [];
+
+  var net = Money.zero(currency);
+  for (final lending in lendings) {
+    if (lending.isSettled || lending.currency != currency) continue;
+    net += lending.kind.isReceivable ? lending.outstanding : -lending.outstanding;
+  }
+  return net;
 });
 
 // ---------------------------------------------------------------------------

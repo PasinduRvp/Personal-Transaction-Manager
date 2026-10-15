@@ -244,6 +244,25 @@ service cloud.firestore {
         }
       }
 
+      // Money lent to, or borrowed from, someone who is not an account of
+      // their own. `outstanding_minor` starts equal to the principal and is
+      // only ever reduced by a repayment the client records alongside it —
+      // the same "no rule can check one document's increment against
+      // another's amount" trade documented at the top of this file applies
+      // here too.
+      match /lendings/{lendingId} {
+        allow read: if owns(uid);
+        allow create: if owns(uid)
+          && ownIdStamped(uid)
+          && isPositiveMinor(request.resource.data.principal_minor)
+          && request.resource.data.outstanding_minor
+             == request.resource.data.principal_minor;
+        allow update: if owns(uid)
+          && ownIdStamped(uid)
+          && doesNotTouch(['created_at', 'principal_minor', 'kind', 'account_id']);
+        allow delete: if owns(uid);
+      }
+
       match /bills/{billId} {
         allow read: if owns(uid);
         allow create: if owns(uid)

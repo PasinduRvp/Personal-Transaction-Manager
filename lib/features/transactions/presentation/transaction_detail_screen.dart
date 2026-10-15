@@ -219,7 +219,9 @@ class _Body extends ConsumerWidget {
         ],
 
         AppSpacing.gapXxl,
-        _ActionButtons(transaction: transaction),
+        transaction.lendingId == null
+            ? _ActionButtons(transaction: transaction)
+            : _LendingLinkButton(lendingId: transaction.lendingId!),
         AppSpacing.gapXxl,
 
         Center(
@@ -452,6 +454,36 @@ class _AttachmentCard extends ConsumerWidget {
   }
 }
 
+/// Shown instead of Edit/Delete on a transaction a lending record produced.
+///
+/// Editing or deleting it here would change the account balance without
+/// touching that record's outstanding total, leaving the two disagreeing —
+/// so the only way to affect it is through the lending record itself.
+class _LendingLinkButton extends StatelessWidget {
+  const _LendingLinkButton({required this.lendingId});
+
+  final String lendingId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          'This came from a lending record. Edit or settle it there instead.',
+          style: context.text.bodySmall,
+          textAlign: TextAlign.center,
+        ),
+        AppSpacing.gapMd,
+        OutlinedButton.icon(
+          onPressed: () => context.push(AppRoutes.lendingDetail(lendingId)),
+          icon: const Icon(Icons.handshake_outlined, size: 18),
+          label: const Text('View lending record'),
+        ),
+      ],
+    );
+  }
+}
+
 class _ActionButtons extends ConsumerWidget {
   const _ActionButtons({required this.transaction});
 
@@ -536,6 +568,15 @@ class _ActionsMenu extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (transaction.lendingId != null) {
+      return IconButton(
+        onPressed: () =>
+            context.push(AppRoutes.lendingDetail(transaction.lendingId!)),
+        icon: const Icon(Icons.handshake_outlined),
+        tooltip: 'View lending record',
+      );
+    }
+
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert_rounded),
       onSelected: (value) async {

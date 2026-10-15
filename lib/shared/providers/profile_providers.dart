@@ -166,6 +166,11 @@ class SettingsController extends AsyncNotifier<UserSettings> {
               s.copyWith(notifyOcrCompleted: enabled),
             NotificationKind.ocrFailed => s.copyWith(notifyOcrFailed: enabled),
             NotificationKind.goalReached => s,
+            // Shares the bill-due flag: it is the same "upcoming payment"
+            // reminder category, and no settings toggle exposes this kind on
+            // its own (see the curated list in settings_pages.dart).
+            NotificationKind.creditCardDue =>
+              s.copyWith(notifyBillDue: enabled),
           });
 
   Future<void> setDefaultAccount(String? accountId) =>

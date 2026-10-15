@@ -90,6 +90,8 @@ class NotificationSettingsScreen extends ConsumerWidget {
           'When a document has been read and is ready to review',
         NotificationKind.ocrFailed => 'When a document could not be read',
         NotificationKind.goalReached => 'When a savings goal is reached',
+        NotificationKind.creditCardDue =>
+          'Before a credit card payment is due',
       };
 }
 

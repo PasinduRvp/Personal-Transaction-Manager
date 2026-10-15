@@ -38,6 +38,8 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
   final _last4Controller = TextEditingController();
   final _balanceController = TextEditingController();
   final _creditLimitController = TextEditingController();
+  final _statementDayController = TextEditingController();
+  final _paymentDueDayController = TextEditingController();
 
   AccountType _type = AccountType.bank;
   String _currency = Currencies.fallback.code;
@@ -54,6 +56,8 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
     _last4Controller.dispose();
     _balanceController.dispose();
     _creditLimitController.dispose();
+    _statementDayController.dispose();
+    _paymentDueDayController.dispose();
     super.dispose();
   }
 
@@ -66,6 +70,8 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
     _last4Controller.text = account.accountNumberLast4 ?? '';
     _balanceController.text = account.initialBalance.toEditableString();
     _creditLimitController.text = account.creditLimit?.toEditableString() ?? '';
+    _statementDayController.text = account.statementDay?.toString() ?? '';
+    _paymentDueDayController.text = account.paymentDueDay?.toString() ?? '';
     _type = account.type;
     _currency = account.currency;
     _iconName = account.iconName;
@@ -96,6 +102,11 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
     final creditLimit = _type.isCredit
         ? Money.tryParse(_creditLimitController.text, _currency)
         : null;
+    final statementDay =
+        _type.isCredit ? int.tryParse(_statementDayController.text.trim()) : null;
+    final paymentDueDay = _type.isCredit
+        ? int.tryParse(_paymentDueDayController.text.trim())
+        : null;
 
     setState(() => _isSubmitting = true);
     final controller = ref.read(accountsControllerProvider.notifier);
@@ -109,6 +120,8 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
             institutionName: _nullIfEmpty(_institutionController.text),
             accountNumberLast4: _nullIfEmpty(_last4Controller.text),
             creditLimit: creditLimit,
+            statementDay: statementDay,
+            paymentDueDay: paymentDueDay,
             iconName: _iconName,
             colorHex: _color == null ? null : AppColors.toHex(_color!),
             isActive: _isActive,
@@ -134,6 +147,8 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
             institutionName: _nullIfEmpty(_institutionController.text),
             accountNumberLast4: _nullIfEmpty(_last4Controller.text),
             creditLimit: creditLimit,
+            statementDay: statementDay,
+            paymentDueDay: paymentDueDay,
             iconName: _iconName,
             colorHex: _color == null ? null : AppColors.toHex(_color!),
             isActive: _isActive,
@@ -296,6 +311,50 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
                   helperText: 'Used to show how much credit is still available',
                 ),
                 AppSpacing.gapLg,
+
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _statementDayController,
+                        keyboardType: TextInputType.number,
+                        maxLength: 2,
+                        validator: Validators.dayOfMonth,
+                        decoration: const InputDecoration(
+                          labelText: 'Statement day',
+                          hintText: '1-31',
+                          counterText: '',
+                        ),
+                      ),
+                    ),
+                    AppSpacing.hGapMd,
+                    Expanded(
+                      child: TextFormField(
+                        controller: _paymentDueDayController,
+                        keyboardType: TextInputType.number,
+                        maxLength: 2,
+                        validator: Validators.dayOfMonth,
+                        decoration: const InputDecoration(
+                          labelText: 'Payment due day',
+                          hintText: '1-31',
+                          counterText: '',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(
+                    top: AppSpacing.xs,
+                    left: AppSpacing.md,
+                  ),
+                  child: Text(
+                    'Optional. Used to remind you before a payment is due.',
+                    style: context.text.bodySmall,
+                  ),
+                ),
+                AppSpacing.gapLg,
               ],
 
               TextFormField(
@@ -438,8 +497,13 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
     if (picked != null) {
       setState(() {
         _type = picked;
-        // A credit limit only means something on a credit card.
-        if (!picked.isCredit) _creditLimitController.clear();
+        // A credit limit, statement day and due day only mean something on a
+        // credit card.
+        if (!picked.isCredit) {
+          _creditLimitController.clear();
+          _statementDayController.clear();
+          _paymentDueDayController.clear();
+        }
       });
     }
   }

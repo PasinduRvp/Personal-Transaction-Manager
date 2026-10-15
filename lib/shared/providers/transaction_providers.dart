@@ -299,6 +299,7 @@ class TransactionWriter extends AsyncNotifier<void> {
     String? notes,
     PaymentMethod? paymentMethod,
     String? documentId,
+    Money? fee,
   }) async {
     state = const AsyncValue<void>.loading();
     try {
@@ -312,6 +313,7 @@ class TransactionWriter extends AsyncNotifier<void> {
                 notes: notes,
                 paymentMethod: paymentMethod,
                 documentId: documentId,
+                fee: fee,
               );
       state = const AsyncValue.data(null);
       _invalidateReaders();

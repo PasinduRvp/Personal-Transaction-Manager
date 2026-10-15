@@ -23,6 +23,8 @@ class Account extends Equatable {
     this.institutionName,
     this.accountNumberLast4,
     this.creditLimit,
+    this.statementDay,
+    this.paymentDueDay,
     this.iconName,
     this.colorHex,
     this.isActive = true,
@@ -45,6 +47,15 @@ class Account extends Equatable {
   /// must never reach the database.
   final String? accountNumberLast4;
   final Money? creditLimit;
+
+  /// Day of the month (1-31) a credit card's statement closes, and the day its
+  /// payment is due. Null for every other account type.
+  ///
+  /// Stored as a plain day-of-month rather than a date: a statement date
+  /// recurs every billing cycle, and clamping it against a short month (a 31
+  /// against February) happens wherever it is used, not here.
+  final int? statementDay;
+  final int? paymentDueDay;
   final String? iconName;
   final String? colorHex;
   final bool isActive;
@@ -91,6 +102,37 @@ class Account extends Equatable {
     return currentBalance.abs.percentOf(limit).clamp(0, 999);
   }
 
+  /// The next date this card's payment is due, counting forward from today.
+  ///
+  /// Clamped against short months the same way a recurring schedule is: a due
+  /// day of 31 lands on the 28th in February rather than rolling into March.
+  DateTime? get nextPaymentDueDate {
+    final day = paymentDueDay;
+    if (!type.isCredit || day == null) return null;
+
+    final now = DateTime.now();
+    DateTime forMonth(int year, int month) {
+      final lastDayOfMonth = DateTime(year, month + 1, 0).day;
+      return DateTime(year, month, day.clamp(1, lastDayOfMonth));
+    }
+
+    final thisMonth = forMonth(now.year, now.month);
+    final today = DateTime(now.year, now.month, now.day);
+    if (!thisMonth.isBefore(today)) return thisMonth;
+
+    final nextMonth = now.month == 12 ? 1 : now.month + 1;
+    final nextYear = now.month == 12 ? now.year + 1 : now.year;
+    return forMonth(nextYear, nextMonth);
+  }
+
+  /// Days from today until [nextPaymentDueDate], or null when there is none.
+  int? get daysUntilPaymentDue {
+    final due = nextPaymentDueDate;
+    if (due == null) return null;
+    final now = DateTime.now();
+    return due.difference(DateTime(now.year, now.month, now.day)).inDays;
+  }
+
   /// Whether the account contributes to the dashboard's total balance.
   bool get countsTowardNetBalance => isActive && !isArchived;
 
@@ -107,6 +149,8 @@ class Account extends Equatable {
       institutionName: json.strOrNull('institution_name'),
       accountNumberLast4: json.strOrNull('account_number_last4'),
       creditLimit: json.moneyOrNull('credit_limit'),
+      statementDay: json.intOrNull('statement_day'),
+      paymentDueDay: json.intOrNull('payment_due_day'),
       iconName: json.strOrNull('icon'),
       colorHex: json.strOrNull('color'),
       isActive: json.boolVal('is_active', fallback: true),
@@ -127,6 +171,8 @@ class Account extends Equatable {
         'institution_name': institutionName,
         'account_number_last4': accountNumberLast4,
         ...moneyFields('credit_limit', creditLimit, withCurrency: false),
+        'statement_day': statementDay,
+        'payment_due_day': paymentDueDay,
         'icon': iconName,
         'color': colorHex,
         'is_active': isActive,
@@ -140,6 +186,8 @@ class Account extends Equatable {
         'institution_name': institutionName,
         'account_number_last4': accountNumberLast4,
         ...moneyFields('credit_limit', creditLimit, withCurrency: false),
+        'statement_day': statementDay,
+        'payment_due_day': paymentDueDay,
         'icon': iconName,
         'color': colorHex,
         'is_active': isActive,
@@ -156,6 +204,8 @@ class Account extends Equatable {
     Object? institutionName = _sentinel,
     Object? accountNumberLast4 = _sentinel,
     Object? creditLimit = _sentinel,
+    Object? statementDay = _sentinel,
+    Object? paymentDueDay = _sentinel,
     Object? iconName = _sentinel,
     Object? colorHex = _sentinel,
     bool? isActive,
@@ -178,6 +228,12 @@ class Account extends Equatable {
             : accountNumberLast4 as String?,
         creditLimit:
             creditLimit == _sentinel ? this.creditLimit : creditLimit as Money?,
+        statementDay: statementDay == _sentinel
+            ? this.statementDay
+            : statementDay as int?,
+        paymentDueDay: paymentDueDay == _sentinel
+            ? this.paymentDueDay
+            : paymentDueDay as int?,
         iconName: iconName == _sentinel ? this.iconName : iconName as String?,
         colorHex: colorHex == _sentinel ? this.colorHex : colorHex as String?,
         isActive: isActive ?? this.isActive,
@@ -200,6 +256,8 @@ class Account extends Equatable {
         institutionName,
         accountNumberLast4,
         creditLimit,
+        statementDay,
+        paymentDueDay,
         iconName,
         colorHex,
         isActive,

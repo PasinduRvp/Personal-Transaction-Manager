@@ -460,6 +460,7 @@ class TransactionRepository extends BaseRepository {
     String? notes,
     PaymentMethod? paymentMethod,
     String? documentId,
+    Money? fee,
   }) =>
       guard(() async {
         if (fromAccountId == toAccountId) {
@@ -472,10 +473,27 @@ class TransactionRepository extends BaseRepository {
             'The transfer amount must be greater than zero.',
           );
         }
+        if (fee != null && fee.isNegative) {
+          throw const ValidationException(
+            'The transfer fee cannot be negative.',
+          );
+        }
+
+        final hasFee = fee != null && !fee.isZero;
+
+        // A bank's own cut of the transfer, charged on top of the amount moved —
+        // it leaves the source account like any other expense, so it goes through
+        // the same budgets/rollups the ledger writer already applies to one.
+        // Read before the Firestore transaction for the same reason `create()`
+        // reads its budgets first: the client SDK cannot run a query inside one.
+        final feeBudgets = hasFee ? await _activeBudgets() : const <Budget>[];
+        final feeCategoryId =
+            hasFee ? await _feesAndChargesCategoryId() : null;
 
         final groupId = _col.doc().id;
         final outRef = _col.doc();
         final inRef = _col.doc();
+        final feeRef = hasFee ? _col.doc() : null;
 
         await db.runTransaction((tx) async {
           final from =
@@ -545,10 +563,72 @@ class TransactionRepository extends BaseRepository {
               ...updatedFields(),
             });
           }
+
+          if (feeRef != null) {
+            tx.set(feeRef, {
+              'user_id': userId,
+              'account_id': fromAccountId,
+              'category_id': feeCategoryId,
+              'type': TransactionType.expense.wire,
+              ...moneyFields('amount', fee!),
+              'description': 'Transfer fee',
+              'merchant': null,
+              'payment_method': paymentMethod?.wire,
+              'transaction_date': Timestamp.fromDate(date),
+              'notes': notes,
+              'document_id': null,
+              'source': TransactionSource.manual.wire,
+              'status': TransactionStatus.confirmed.wire,
+              'transfer_group_id': groupId,
+              'reference_number': null,
+              'is_split': false,
+              'search_terms': searchTerms(['Transfer fee']),
+              ...createdFields(),
+            });
+
+            // A real expense, unlike the two legs above: it belongs in the
+            // rollups and any matching budget, so it goes through the same
+            // ledger path `create()` uses rather than a bare balance increment.
+            LedgerWriter.apply(
+              tx,
+              userId: userId,
+              before: null,
+              after: LedgerEffect(
+                accountId: fromAccountId,
+                categoryId: feeCategoryId,
+                type: TransactionType.expense,
+                status: TransactionStatus.confirmed,
+                currency: fee.currency,
+                amountMinor: fee.minorUnits.abs(),
+                date: date,
+                merchant: null,
+                paymentMethod: paymentMethod?.wire,
+                transferDirection: null,
+              ),
+              budgets: feeBudgets,
+            );
+          }
         });
 
         return groupId;
       });
+
+  /// The id of the "Fees & Charges" default category, if it still exists under
+  /// that name.
+  ///
+  /// Best-effort: a transfer fee is still worth recording as an expense even
+  /// when the user renamed or deleted the category it would normally land in,
+  /// so a miss here falls back to no category rather than failing the transfer.
+  Future<String?> _feesAndChargesCategoryId() async {
+    final index = await relations.load();
+    for (final entry in index.categories.entries) {
+      if (entry.value.str('name').trim().toLowerCase() ==
+          'fees & charges') {
+        return entry.key;
+      }
+    }
+    return null;
+  }
 
   /// Edits both legs together: the amount, the date and the description.
   ///
@@ -566,14 +646,23 @@ class TransactionRepository extends BaseRepository {
     final legs =
         await _col.where('transfer_group_id', isEqualTo: groupId).get();
 
-    if (legs.docs.length != 2) {
+    // A fee leg may share this group id but is a real expense, independent of
+    // the amount being edited here — it is left untouched rather than scaled
+    // along with the transfer.
+    final transferLegs = legs.docs
+        .where((doc) =>
+            TransactionType.fromWire(doc.asJson.str('type')) ==
+            TransactionType.transfer)
+        .toList(growable: false);
+
+    if (transferLegs.length != 2) {
       throw const ValidationException(
         'This transfer is missing one of its halves and cannot be edited.',
       );
     }
 
     await db.runTransaction((tx) async {
-      for (final leg in legs.docs) {
+      for (final leg in transferLegs) {
         final before = LedgerWriter.effectOf(leg.asJson);
         if (before == null) continue;
 
@@ -610,7 +699,8 @@ class TransactionRepository extends BaseRepository {
     return fetchById(transaction.id);
   }
 
-  /// Deletes both legs and reverses both balances.
+  /// Deletes every leg — both transfer halves, and the fee leg if one was
+  /// recorded — reversing each one's effect.
   ///
   /// One at a time would leave a moment — or, if the connection dropped, forever —
   /// in which money had arrived somewhere it never left.
@@ -620,18 +710,37 @@ class TransactionRepository extends BaseRepository {
 
     if (legs.docs.isEmpty) throw const NotFoundException();
 
+    // The fee leg is a real expense and needs its rollup/budget contribution
+    // reversed too, not just its balance — which means its budgets have to be
+    // read before the Firestore transaction, same as everywhere else.
+    final hasFeeLeg = legs.docs.any((doc) =>
+        TransactionType.fromWire(doc.asJson.str('type')) !=
+        TransactionType.transfer);
+    final budgets = hasFeeLeg ? await _activeBudgets() : const <Budget>[];
+
     await db.runTransaction((tx) async {
       for (final leg in legs.docs) {
         final before = LedgerWriter.effectOf(leg.asJson);
         tx.delete(leg.reference);
 
-        if (before == null || !before.counts) continue;
+        if (before == null) continue;
 
-        tx.update(FirebaseService.accounts(userId).doc(before.accountId), {
-          minorKey('current_balance'):
-              FieldValue.increment(-before.signedMinor),
-          ...updatedFields(),
-        });
+        if (before.type.isTransfer) {
+          if (!before.counts) continue;
+          tx.update(FirebaseService.accounts(userId).doc(before.accountId), {
+            minorKey('current_balance'):
+                FieldValue.increment(-before.signedMinor),
+            ...updatedFields(),
+          });
+        } else {
+          LedgerWriter.apply(
+            tx,
+            userId: userId,
+            before: before,
+            after: null,
+            budgets: budgets,
+          );
+        }
       }
     });
   }
