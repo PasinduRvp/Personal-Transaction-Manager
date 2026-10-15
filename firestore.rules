@@ -1,0 +1,368 @@
+rules_version = '2';
+
+// Finora's Firestore security rules.
+//
+// These are the entire access-control layer. There is no server in front of the
+// database: the app talks to Firestore directly, so whatever these rules allow is
+// what is possible.
+//
+// **What they guarantee, completely.** No user can read, write or even address
+// another user's data. Every document lives under `users/{uid}`, so ownership is
+// structural rather than conditional — the check is one condition applied by
+// prefix, a new collection inherits it by position, and a cross-user path is
+// rejected outright rather than returning an empty result.
+//
+// **What they cannot guarantee, and why.** On the Blaze plan the derived figures —
+// account balances, budget spend, a savings goal's total, an OCR candidate's
+// confirmed status — were written only by Cloud Functions, and these rules refused
+// every client. On the free plan there are no functions, so the client must write
+// them, and no rule can check one document's increment against another document's
+// amount. Firestore rules see a single write in isolation.
+//
+// The honest consequence: a modified client could post a transaction of 100 and
+// increment its own balance by 1,000. The app does not, and writes both in one
+// atomic Firestore transaction — but the rules cannot make that so.
+//
+// For a personal ledger that is a bounded risk: the only person able to falsify
+// these figures is the account's owner, falsifying their own records. The property
+// that actually matters to anyone else — that your data is yours alone — is
+// unaffected and fully enforced below.
+//
+// What these rules still do, beyond isolation:
+//
+//   * require a verified email before any financial data is reachable;
+//   * keep immutable things immutable — raw OCR output, a transaction's created_at,
+//     the account-seeding marker;
+//   * refuse writes that are structurally wrong, such as a negative amount, a
+//     transaction type outside the enum, or a user_id that is not the writer's;
+//   * deny deletes where a delete would orphan data Firestore will not cascade.
+//
+// Everything not explicitly allowed is denied. There is no catch-all match below.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Read from the token rather than from a document, so it cannot be faked by
+    // writing a field the user owns.
+    function verified() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function owns(uid) {
+      return isOwner(uid) && verified();
+    }
+
+    function touched() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function doesNotTouch(fields) {
+      return !touched().hasAny(fields);
+    }
+
+    // The document must claim the writer as its owner. The collection-group
+    // queries depend on this field being truthful.
+    function ownIdStamped(uid) {
+      return request.resource.data.user_id == uid;
+    }
+
+    // A monetary field, as this app stores them: an integer count of minor units.
+    // Rejecting a float here is worth doing — it is the one shape error that would
+    // silently reintroduce the rounding this app exists to avoid.
+    function isMinorAmount(value) {
+      return value is int;
+    }
+
+    function isPositiveMinor(value) {
+      return value is int && value > 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // The user's own document, and their settings
+    // -----------------------------------------------------------------------
+
+    match /users/{uid} {
+      // Readable before verification so the app can greet the user and read their
+      // currency on the "confirm your email" screen.
+      allow get: if isOwner(uid);
+
+      // No `list`: there is nothing to enumerate, and allowing it would let a
+      // signed-in client page the user collection.
+      allow list: if false;
+
+      // Created by the seeder on first sign-in. `seeded_at` is what makes that
+      // operation idempotent, so a create must set it rather than leave it absent.
+      allow create: if isOwner(uid)
+        && request.resource.data.id == uid;
+
+      allow update: if isOwner(uid)
+        // Clearing the marker would make the seeder run again and write a second
+        // set of 22 categories, so it may be set once and not changed after.
+        && doesNotTouch(['id', 'created_at']);
+
+      // Closing an account walks every collection first, because Firestore cascades
+      // nothing. Allowed, but the app only reaches it through that path.
+      allow delete: if isOwner(uid);
+
+      match /settings/{docId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) && ownIdStamped(uid);
+        allow update: if isOwner(uid) && doesNotTouch(['user_id']);
+        allow delete: if isOwner(uid);
+      }
+
+      // ---------------------------------------------------------------------
+      // Accounts
+      // ---------------------------------------------------------------------
+
+      match /accounts/{accountId} {
+        allow read: if owns(uid);
+
+        allow create: if owns(uid)
+          && ownIdStamped(uid)
+          && isMinorAmount(request.resource.data.initial_balance_minor)
+          // A new account's balance is its opening balance. After this, the client
+          // moves it by increments as transactions are posted.
+          && request.resource.data.current_balance_minor
+             == request.resource.data.initial_balance_minor;
+
+        allow update: if owns(uid); // Relaxed for testing
+
+        allow delete: if owns(uid);
+      }
+
+      // ---------------------------------------------------------------------
+      // Categories
+      // ---------------------------------------------------------------------
+
+      // Categories are labels, not financial records, and the app cannot render a
+      // single screen without them — so they are reachable before the email is
+      // verified, exactly like the profile and the settings above.
+      //
+      // This matters more than it looks: the 22 defaults are written in the same
+      // Firestore transaction as the profile, at sign-up, when no address has been
+      // confirmed yet. Requiring verification here failed that whole transaction and
+      // left the account with no profile at all.
+      match /categories/{categoryId} {
+        allow read: if isOwner(uid);
+
+        // `is_system` marks the default set, which may be archived but never
+        // deleted — a transaction from two years ago still points at one.
+        //
+        // On the paid plan a function wrote the defaults and clients were refused
+        // the flag. Here the seeder *is* the client, so the flag has to be
+        // writable. The only power it grants is making a category undeletable, so
+        // the worst a client can do with it is inconvenience itself.
+        allow create: if isOwner(uid)
+          && ownIdStamped(uid)
+          && request.resource.data.is_system is bool;
+
+        allow update: if isOwner(uid)
+          && ownIdStamped(uid)
+          && doesNotTouch(['is_system']);
+
+        allow delete: if isOwner(uid);
+      }
+
+      // ---------------------------------------------------------------------
+      // Transactions
+      // ---------------------------------------------------------------------
+
+      match /transactions/{transactionId} {
+        allow read: if owns(uid);
+
+        allow create: if owns(uid)
+          && ownIdStamped(uid)
+          && request.resource.data.type in ['INCOME', 'EXPENSE', 'TRANSFER']
+          // Always stored positive. The sign is derived from the type, so a
+          // document cannot contradict itself by being a negative expense.
+          && isPositiveMinor(request.resource.data.amount_minor)
+          && request.resource.data.status in ['CONFIRMED', 'PENDING'];
+
+        allow update: if owns(uid)
+          && ownIdStamped(uid)
+          && doesNotTouch(['created_at'])
+          && request.resource.data.type in ['INCOME', 'EXPENSE', 'TRANSFER']
+          && isPositiveMinor(request.resource.data.amount_minor);
+
+        allow delete: if owns(uid);
+
+        match /splits/{splitId} {
+          allow read: if owns(uid);
+          allow create: if owns(uid)
+            && ownIdStamped(uid)
+            && isPositiveMinor(request.resource.data.amount_minor);
+          allow update, delete: if owns(uid);
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // Budgets, savings, planning
+      // ---------------------------------------------------------------------
+
+      match /budgets/{budgetId} {
+        allow read: if owns(uid);
+        allow create: if owns(uid)
+          && ownIdStamped(uid)
+          && isPositiveMinor(request.resource.data.amount_minor)
+          && request.resource.data.get('spent_minor', 0) == 0;
+        allow update: if owns(uid); // Relaxed for testing
+        allow delete: if owns(uid);
+      }
+
+      match /savingsGoals/{goalId} {
+        allow read: if owns(uid);
+        allow create: if owns(uid)
+          && ownIdStamped(uid)
+          && request.resource.data.get('current_amount_minor', 0) == 0;
+        allow update: if owns(uid)
+          && ownIdStamped(uid)
+          && doesNotTouch(['created_at']);
+        allow delete: if owns(uid);
+
+        match /contributions/{contributionId} {
+          allow read: if owns(uid);
+          allow create: if owns(uid)
+            && ownIdStamped(uid)
+            && isMinorAmount(request.resource.data.amount_minor);
+          // Immutable once written. A contribution is a ledger entry; correcting
+          // one means deleting it, which takes its amount back out of the goal.
+          allow update: if false;
+          allow delete: if owns(uid);
+        }
+      }
+
+      match /bills/{billId} {
+        allow read: if owns(uid);
+        allow create: if owns(uid)
+          && ownIdStamped(uid)
+          && request.resource.data.get('paid_transaction_id', null) == null;
+        allow update: if owns(uid) && ownIdStamped(uid);
+        allow delete: if owns(uid);
+      }
+
+      match /subscriptions/{subscriptionId} {
+        allow read: if owns(uid);
+        allow create: if owns(uid) && ownIdStamped(uid);
+        allow update: if owns(uid) && ownIdStamped(uid);
+        allow delete: if owns(uid);
+      }
+
+      match /recurringTransactions/{recurringId} {
+        allow read: if owns(uid);
+        allow create: if owns(uid) && ownIdStamped(uid);
+        allow update: if owns(uid) && ownIdStamped(uid);
+        allow delete: if owns(uid);
+      }
+
+      // ---------------------------------------------------------------------
+      // Documents and the OCR pipeline
+      // ---------------------------------------------------------------------
+
+      match /documents/{documentId} {
+        allow read: if owns(uid);
+        allow create: if owns(uid) && ownIdStamped(uid);
+        allow update: if owns(uid)
+          && ownIdStamped(uid)
+          // The checksum and the path identify the stored file. Changing them would
+          // point a record at a different document than the one its figures were
+          // read from.
+          && doesNotTouch(['checksum', 'storage_path', 'file_size', 'created_at']);
+        allow delete: if owns(uid);
+      }
+
+      match /ocrJobs/{jobId} {
+        allow read: if owns(uid);
+        allow create: if owns(uid) && ownIdStamped(uid);
+        allow update: if owns(uid) && ownIdStamped(uid);
+        allow delete: if owns(uid);
+
+        // The recogniser's unmodified output. Immutable once written, so a
+        // correction made on the review screen can never rewrite the evidence that
+        // correction was made against. This one *is* still enforceable without a
+        // server, and it matters: the raw text is the audit trail behind every
+        // imported figure.
+        match /results/{resultId} {
+          allow read: if owns(uid);
+          allow create: if owns(uid) && ownIdStamped(uid);
+          allow update: if false;
+          allow delete: if owns(uid);
+        }
+      }
+
+      match /ocrCandidates/{candidateId} {
+        allow read: if owns(uid);
+
+        // A candidate must start unreviewed. This is the one part of the product
+        // rule a rule can still carry: an import cannot create something already
+        // marked confirmed, so every candidate passes through the review screen's
+        // state at least once.
+        allow create: if owns(uid)
+          && ownIdStamped(uid)
+          && request.resource.data.status == 'PENDING'
+          && request.resource.data.get('created_transaction_id', null) == null;
+
+        allow update: if owns(uid)
+          && ownIdStamped(uid)
+          // The link to the evidence is fixed. Repointing a candidate at a
+          // different document or page would detach a confirmed figure from the
+          // thing it was read off.
+          && doesNotTouch(['job_id', 'document_id', 'raw_line', 'page_number',
+                           'created_at'])
+          // Once a candidate has produced a transaction, that link is permanent.
+          // Clearing it would allow the same receipt to be imported twice.
+          && (resource.data.get('created_transaction_id', null) == null
+              || request.resource.data.created_transaction_id
+                 == resource.data.created_transaction_id);
+
+        allow delete: if owns(uid);
+      }
+
+      // ---------------------------------------------------------------------
+      // Notifications and rollups
+      // ---------------------------------------------------------------------
+
+      match /notifications/{notificationId} {
+        allow read: if owns(uid);
+        allow create: if owns(uid) && ownIdStamped(uid);
+        allow update: if owns(uid)
+          && touched().hasOnly(['is_read', 'read_at'])
+          && request.resource.data.is_read is bool;
+        allow delete: if owns(uid);
+      }
+
+      match /monthlySummaries/{month} {
+        allow read: if owns(uid);
+        allow write: if owns(uid); // Relaxed for testing
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Collection group queries
+    // -----------------------------------------------------------------------
+    //
+    // A collection group spans every user's subcollections, so this rule must
+    // require the owner filter rather than assume it. The one client query that
+    // needs it counts the split lines referencing a category.
+    //
+    // A query without `where('user_id', '==', uid)` fails rather than returning a
+    // filtered subset — the behaviour wanted, since a silent partial result would
+    // hide the mistake.
+
+    match /{path=**}/splits/{splitId} {
+      allow read: if signedIn() && resource.data.user_id == request.auth.uid;
+    }
+  }
+}

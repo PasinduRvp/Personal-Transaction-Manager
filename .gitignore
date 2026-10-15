@@ -11,8 +11,19 @@ pubspec.lock
 # If you don't generate documentation locally you can remove this line.
 doc/api/
 
-# dotenv environment variables file
-.env*
+# dotenv environment variables file. The example is committed on purpose so a
+# new developer can see which values are needed; the real .env never is.
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Signing material and local tooling
+*.jks
+*.keystore
+key.properties
+coverage/
+.fvm/
 
 # Avoid committing generated Javascript files:
 *.dart.js
@@ -27,3 +38,32 @@ doc/api/
 
 .flutter-plugins
 .flutter-plugins-dependencies
+
+# ---------------------------------------------------------------------------
+# Firebase
+# ---------------------------------------------------------------------------
+# The platform config files are not secrets in Firebase's model — access is
+# decided by the security rules and the caller's ID token, not by possession of
+# these identifiers. They are kept out of the repository anyway, because the API
+# key in them can be used to call the project's own auth endpoints: not to read
+# anyone's data, but enough to create junk accounts and burn quota. Restricting
+# the key in the Google Cloud console closes that; keeping it unpublished costs
+# one documented setup step, which MANUAL_SETUP.md covers.
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+macos/Runner/GoogleService-Info.plist
+
+# `firebase_options.dart` IS committed: it is generated, every project needs it to
+# build, and it holds the same public identifiers as the files above.
+
+# Local tooling and build output
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+functions/node_modules/
+functions/lib/
+functions/.env
+functions/.env.*
+!functions/.env.example

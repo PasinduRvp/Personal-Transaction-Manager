@@ -1,0 +1,76 @@
+name: finora
+description: "Finora - a professional Personal Transaction Manager with OCR-based document import."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI
+  cupertino_icons: ^1.0.8
+  fl_chart: ^0.69.2
+
+  # State management & routing
+  flutter_riverpod: ^2.6.1
+  go_router: ^14.6.2
+
+  # Backend. Firestore and Auth only — Cloud Functions and Cloud Storage both
+  # require the paid Blaze plan, so this app uses neither. Derived figures are
+  # written client-side inside Firestore transactions (see ledger_writer.dart),
+  # and documents are stored on the device (see document_store.dart).
+  firebase_core: ^3.8.1
+  firebase_auth: ^5.3.4
+  cloud_firestore: ^5.6.0
+
+  # Storage / local
+  shared_preferences: ^2.3.4
+  flutter_secure_storage: ^9.2.2
+  path_provider: ^2.1.5
+  path: ^1.9.0
+
+  # OCR, on device
+  #
+  # ML Kit's text recogniser runs entirely on the phone: no API key exists, no
+  # request leaves the device, and there is nothing to bill. That is what makes
+  # the import feature possible on the free plan at all — a cloud recogniser
+  # would need a key, and a key needs a server to hold it.
+  google_mlkit_text_recognition: ^0.14.0
+
+  # Files & media
+  image_picker: ^1.1.2
+  file_picker: ^8.1.6
+  image: ^4.3.0
+
+  # Reports / export
+  pdf: ^3.11.1
+  csv: ^6.0.0
+  share_plus: ^10.1.4
+
+  # Platform utilities
+  connectivity_plus: ^6.1.0
+
+  # Misc
+  crypto: ^3.0.6
+  intl: ^0.20.2
+  uuid: ^4.5.1
+  collection: ^1.19.0
+  equatable: ^2.0.7
+  logging: ^1.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  mocktail: ^1.0.4
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
