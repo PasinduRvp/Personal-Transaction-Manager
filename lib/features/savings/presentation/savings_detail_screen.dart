@@ -94,7 +94,7 @@ class _Body extends ConsumerWidget {
               ),
               AppSpacing.gapXs,
               Text(
-                'of ${goal.targetAmount.format()}',
+                'of ${goal.targetAmount.formatOrMask(hidden: obscure)}',
                 style: context.text.bodyMedium,
               ),
               AppSpacing.gapLg,
@@ -114,7 +114,7 @@ class _Body extends ConsumerWidget {
                   Text(
                     goal.isReached
                         ? 'Target reached'
-                        : '${goal.remaining.format()} to go',
+                        : '${goal.remaining.formatOrMask(hidden: obscure)} to go',
                     style: context.text.bodyMedium?.copyWith(
                       color: goal.isReached ? context.palette.income : null,
                     ),

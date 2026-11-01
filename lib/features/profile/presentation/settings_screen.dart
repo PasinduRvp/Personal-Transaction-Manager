@@ -63,6 +63,12 @@ class _SettingsBody extends ConsumerWidget {
               subtitle: 'Password and session',
               onTap: () => context.push(AppRoutes.settingsSecurity),
             ),
+            _SettingsRow(
+              icon: Icons.privacy_tip_outlined,
+              title: 'Security & privacy',
+              subtitle: _privacySubtitle(settings),
+              onTap: () => context.push(AppRoutes.settingsPrivacyControls),
+            ),
           ],
         ),
 
@@ -88,23 +94,6 @@ class _SettingsBody extends ConsumerWidget {
               subtitle: defaultAccount?.name ?? 'Not set',
               onTap: () => _changeDefaultAccount(context, ref),
             ),
-            if (settings != null)
-              SwitchListTile(
-                value: settings.hideAmountsOnDashboard,
-                onChanged: (value) => ref
-                    .read(settingsControllerProvider.notifier)
-                    .setHideAmounts(value),
-                secondary: Icon(
-                  Icons.visibility_off_outlined,
-                  size: 22,
-                  color: context.palette.textSecondary,
-                ),
-                title: Text('Hide amounts', style: context.text.titleSmall),
-                subtitle: Text(
-                  'Blur balances until you tap to reveal them',
-                  style: context.text.bodySmall,
-                ),
-              ),
           ],
         ),
 
@@ -156,6 +145,20 @@ class _SettingsBody extends ConsumerWidget {
         AppSpacing.gapXl,
       ],
     );
+  }
+
+  /// Says what is actually switched on, rather than listing what is available.
+  /// A row reading "App lock, amounts hidden" answers the question someone
+  /// opens this screen to ask.
+  static String _privacySubtitle(UserSettings? settings) {
+    if (settings == null) return 'App lock and hiding amounts';
+
+    final active = [
+      if (settings.biometricLockEnabled) 'App lock',
+      if (settings.hideAmountsOnDashboard) 'amounts hidden',
+      if (settings.requireBiometricToReveal) 'verified reveal',
+    ];
+    return active.isEmpty ? 'Off' : active.join(' · ');
   }
 
   Future<void> _changeCurrency(BuildContext context, WidgetRef ref) async {

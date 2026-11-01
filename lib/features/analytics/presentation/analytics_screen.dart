@@ -8,6 +8,7 @@ import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/app_date_utils.dart';
+import '../../../core/utils/money.dart';
 import '../../../shared/models/analytics.dart';
 import '../../../shared/providers/analytics_providers.dart';
 import '../../../shared/providers/profile_providers.dart';
@@ -235,7 +236,7 @@ class _AnalyticsBody extends ConsumerWidget {
                     meta: '${data.topMerchants[i].transactionCount} '
                         'transaction'
                         '${data.topMerchants[i].transactionCount == 1 ? '' : 's'}'
-                        ' · avg ${data.topMerchants[i].average.formatCompact()}',
+                        ' · avg ${data.topMerchants[i].average.formatCompactOrMask(hidden: obscure)}',
                   ),
               ],
               onTap: (index) => DrillDownSheet.show(
@@ -480,7 +481,7 @@ class _SummaryCard extends StatelessWidget {
               AppSpacing.hGapSm,
               Expanded(
                 child: Text(
-                  'Averaging ${summary.averageDailySpend.format()} a day over '
+                  'Averaging ${summary.averageDailySpend.formatOrMask(hidden: obscured)} a day over '
                   '${summary.range.dayCount} days',
                   style: context.text.bodySmall,
                 ),

@@ -6,6 +6,7 @@ import '../repositories/account_seeder.dart';
 import '../repositories/analytics_repository.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/bill_repository.dart';
+import '../repositories/budget_alert_service.dart';
 import '../repositories/budget_repository.dart';
 import '../repositories/category_repository.dart';
 import '../repositories/document_repository.dart';
@@ -68,6 +69,12 @@ final transactionRepositoryProvider = Provider<TransactionRepository>(
 
 final budgetRepositoryProvider = Provider<BudgetRepository>(
   (ref) => BudgetRepository(firestore: ref.watch(firestoreProvider)),
+);
+
+/// Raises budget threshold alerts after a write, in place of the Firestore
+/// trigger the paid plan used for the same job.
+final budgetAlertServiceProvider = Provider<BudgetAlertService>(
+  (ref) => BudgetAlertService(firestore: ref.watch(firestoreProvider)),
 );
 
 final savingsRepositoryProvider = Provider<SavingsRepository>(

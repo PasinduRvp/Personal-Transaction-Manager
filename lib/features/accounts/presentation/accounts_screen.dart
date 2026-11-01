@@ -215,14 +215,17 @@ class _AccountsList extends ConsumerWidget {
   }
 }
 
-class _AccountRow extends StatelessWidget {
+class _AccountRow extends ConsumerWidget {
   const _AccountRow({required this.account});
 
   final Account account;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final utilisation = account.creditUtilisation;
+    // Headroom on a credit card is a financial figure, so it follows the same
+    // privacy toggle as the balance beside it.
+    final hidden = ref.watch(hideAmountsProvider);
 
     return ListTile(
       onTap: () => context.push(AppRoutes.accountDetail(account.id)),
@@ -260,7 +263,7 @@ class _AccountRow extends StatelessWidget {
           MoneyText.balance(account.currentBalance, size: MoneySize.row),
           if (account.availableCredit != null)
             Text(
-              '${account.availableCredit!.formatCompact()} available',
+              '${account.availableCredit!.formatCompactOrMask(hidden: hidden)} available',
               style: context.text.labelSmall?.copyWith(letterSpacing: 0),
             ),
         ],

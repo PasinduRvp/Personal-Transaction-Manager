@@ -24,6 +24,7 @@ import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/ocr/presentation/import_processing_screen.dart';
 import '../../features/ocr/presentation/ocr_review_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/profile/presentation/privacy_settings_screen.dart';
 import '../../features/profile/presentation/settings_pages.dart';
 import '../../features/profile/presentation/settings_screen.dart';
 import '../../features/recurring/presentation/recurring_form_screen.dart';
@@ -416,6 +417,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.settingsSecurity,
         parentNavigatorKey: rootKey,
         builder: (context, state) => const SecuritySettingsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.settingsPrivacyControls,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => const PrivacySettingsScreen(),
       ),
       GoRoute(
         path: AppRoutes.settingsNotifications,

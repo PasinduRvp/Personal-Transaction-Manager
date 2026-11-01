@@ -228,13 +228,21 @@ class PickerField extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasValue = value != null && value!.isNotEmpty;
 
+    // With a leading widget the child draws the placeholder itself, beside the
+    // icon. Handing the same string to `hintText` as well painted it twice at
+    // two different offsets — the decorator positions its hint at the content
+    // origin and knows nothing about the icon the child put there, so the two
+    // overlapped into an unreadable smear. The hint is therefore only used when
+    // nothing else is drawing one.
+    final drawsOwnContent = hasValue || leading != null;
+
     return InkWell(
       onTap: enabled ? onTap : null,
       borderRadius: AppRadius.mdAll,
       child: InputDecorator(
         decoration: InputDecoration(
           labelText: isRequired ? '$label *' : label,
-          hintText: hasValue ? null : placeholder,
+          hintText: drawsOwnContent ? null : placeholder,
           floatingLabelBehavior: FloatingLabelBehavior.always,
           errorText: errorText,
           enabled: enabled,
@@ -244,7 +252,7 @@ class PickerField extends StatelessWidget {
                 color: context.palette.textTertiary,
               ),
         ),
-        isEmpty: !hasValue,
+        isEmpty: !drawsOwnContent,
         child: hasValue
             ? Row(
                 children: [

@@ -235,4 +235,52 @@ void main() {
       expect(Money.tryParse(''), isNull);
     });
   });
+
+  group('Privacy masking', () {
+    // Figures interpolated into a sentence ("of Rs 50,000") cannot hide
+    // themselves the way a MoneyText can, so they go through these. A
+    // regression here puts a balance back on screen that the user has
+    // covered up.
+    test('a hidden amount reveals nothing about itself', () {
+      final amount = Money.fromMajor(1234567.89);
+
+      expect(amount.formatOrMask(hidden: true), kMoneyMask);
+      expect(amount.formatCompactOrMask(hidden: true), kMoneyMask);
+
+      // Not merely different from the real figure — containing no part of it.
+      expect(amount.formatOrMask(hidden: true), isNot(contains('1')));
+      expect(amount.formatOrMask(hidden: true), isNot(contains('234')));
+    });
+
+    test('a visible amount formats exactly as it always did', () {
+      final amount = Money.fromMajor(8450);
+
+      expect(amount.formatOrMask(hidden: false), amount.format());
+      expect(amount.formatCompactOrMask(hidden: false), amount.formatCompact());
+    });
+
+    test('zero is masked like any other figure', () {
+      // A zero balance is information too: it says the account is empty.
+      expect(Money.zero().formatOrMask(hidden: true), kMoneyMask);
+    });
+
+    test('the decimals flag still applies when visible', () {
+      final amount = Money.fromMajor(100);
+
+      expect(
+        amount.formatOrMask(hidden: false, showDecimals: false),
+        amount.format(showDecimals: false),
+      );
+      expect(amount.formatOrMask(hidden: true, showDecimals: false), kMoneyMask);
+    });
+
+    test('every masked figure uses the same mask', () {
+      // Two different masks side by side would read as two different kinds of
+      // hidden, and invite the reader to wonder what the difference is.
+      expect(
+        Money.fromMajor(10).formatOrMask(hidden: true),
+        Money.fromMajor(999999).formatCompactOrMask(hidden: true),
+      );
+    });
+  });
 }

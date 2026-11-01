@@ -12,6 +12,7 @@ import 'core/services/cache_service.dart';
 import 'core/services/connectivity_service.dart';
 import 'core/services/firebase_service.dart';
 import 'core/theme/app_theme.dart';
+import 'features/auth/presentation/app_lock_screen.dart';
 import 'features/auth/presentation/recovery_screens.dart';
 import 'shared/providers/core_providers.dart';
 import 'shared/providers/profile_providers.dart';
@@ -120,7 +121,11 @@ class FinoraApp extends ConsumerWidget {
               media.textScaler.scale(1).clamp(0.85, 1.4),
             ),
           ),
-          child: child ?? const SizedBox.shrink(),
+          // Outside the router rather than inside it, so the lock covers every
+          // route including the ones pushed above the shell, and unlocking
+          // returns to whatever the user was looking at instead of resetting
+          // the navigation stack.
+          child: SecurityGate(child: child ?? const SizedBox.shrink()),
         );
       },
     );

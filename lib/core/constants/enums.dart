@@ -251,6 +251,70 @@ enum NotificationKind {
 
   static NotificationKind fromWire(String? raw) =>
       _parse(values, (v) => v.wire, raw, NotificationKind.ocrCompleted);
+
+  /// Which filter group this kind belongs to in the notification centre.
+  NotificationCategory get category => switch (this) {
+        NotificationKind.budgetWarning => NotificationCategory.budgets,
+        NotificationKind.budgetExceeded => NotificationCategory.budgets,
+        NotificationKind.billDue => NotificationCategory.payments,
+        NotificationKind.subscriptionRenewal => NotificationCategory.payments,
+        NotificationKind.recurringDue => NotificationCategory.payments,
+        NotificationKind.creditCardDue => NotificationCategory.payments,
+        NotificationKind.ocrCompleted => NotificationCategory.imports,
+        NotificationKind.ocrFailed => NotificationCategory.imports,
+        NotificationKind.goalReached => NotificationCategory.goals,
+      };
+}
+
+/// How the notification centre groups kinds for filtering.
+///
+/// A category, not a per-kind filter: nine chips would not fit on a phone, and
+/// nobody wants to see renewals but not bills.
+enum NotificationCategory {
+  budgets('Budgets'),
+  payments('Bills & payments'),
+  imports('Imports'),
+  goals('Goals');
+
+  const NotificationCategory(this.label);
+  final String label;
+}
+
+/// How far past a budget's limit spending has reached.
+///
+/// The percentages are the thresholds themselves, so there is one place that
+/// decides what "nearly spent" means. Ordered lowest first: the alert sweep
+/// walks them in order and fires every level the spending has passed.
+enum BudgetAlertLevel {
+  threeQuarters('75', 75),
+  ninety('90', 90),
+  spent('100', 100),
+  overspent('OVER', 101);
+
+  const BudgetAlertLevel(this.wire, this.percent);
+
+  /// Part of the notification's document id, so a level fires once per period.
+  final String wire;
+
+  /// The percentage of the limit at which this level starts applying.
+  final int percent;
+
+  /// Whether [percentUsed] has reached this level.
+  ///
+  /// [overspent] needs strictly more than the limit — at exactly 100% the
+  /// budget is spent, not exceeded, and saying otherwise over a rounding
+  /// error would be a false alarm about the user's own money.
+  bool reachedBy(double percentUsed) => this == BudgetAlertLevel.overspent
+      ? percentUsed > 100
+      : percentUsed >= percent;
+
+  /// Spending at or past the limit is an "exceeded" alert; below it a warning.
+  /// This decides which of the two settings toggles governs the level.
+  bool get isExceeded =>
+      this == BudgetAlertLevel.spent || this == BudgetAlertLevel.overspent;
+
+  NotificationKind get kind =>
+      isExceeded ? NotificationKind.budgetExceeded : NotificationKind.budgetWarning;
 }
 
 enum AppThemeMode {
@@ -311,5 +375,50 @@ enum LendingKind {
 
   /// True when the principal was money leaving your account.
   bool get isReceivable => this == LendingKind.lent;
+}
+
+/// How the money physically moved for a lending record.
+///
+/// Deliberately narrower than [PaymentMethod]: these are the only three ways
+/// the lending flow asks about, and only [bankTransfer] can carry a fee.
+enum LendingMethod {
+  wallet('WALLET', 'Wallet'),
+  bankTransfer('BANK_TRANSFER', 'Bank Transfer'),
+  other('OTHER', 'Other');
+
+  const LendingMethod(this.wire, this.label);
+  final String wire;
+  final String label;
+
+  static LendingMethod fromWire(String? raw) =>
+      _parse(values, (v) => v.wire, raw, LendingMethod.other);
+
+  /// Only a bank charges a fee on top, so this is the one method that may
+  /// carry an additional charge. Enforced in the repository and the rules too,
+  /// not just by hiding the fields.
+  bool get allowsAdditionalCharge => this == LendingMethod.bankTransfer;
+
+  /// The equivalent [PaymentMethod] for a transaction this produces.
+  PaymentMethod get asPaymentMethod => switch (this) {
+        LendingMethod.wallet => PaymentMethod.eWallet,
+        LendingMethod.bankTransfer => PaymentMethod.bankTransfer,
+        LendingMethod.other => PaymentMethod.other,
+      };
+}
+
+/// How far through repayment a lending record is.
+///
+/// Derived from the amounts rather than stored, so it can never drift out of
+/// step with the outstanding balance the way a separate field would.
+enum LendingStatus {
+  pending('PENDING', 'Pending'),
+  partiallyRepaid('PARTIALLY_REPAID', 'Partially repaid'),
+  fullyRepaid('FULLY_REPAID', 'Fully repaid');
+
+  const LendingStatus(this.wire, this.label);
+  final String wire;
+  final String label;
+
+  bool get isSettled => this == LendingStatus.fullyRepaid;
 }
 

@@ -36,46 +36,81 @@ class NotificationSettingsScreen extends ConsumerWidget {
           children: [
             Text(
               'Choose what Finora tells you about. Turning one off stops it '
-              'being created at all, not just hidden.',
+              'being created at all, not just hidden — so you will not find '
+              'a backlog waiting if you turn it on again.',
               style: context.text.bodySmall,
             ),
             AppSpacing.gapXl,
 
-            AppCard(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-              child: Column(
-                children: [
-                  for (final kind in const [
-                    NotificationKind.budgetWarning,
-                    NotificationKind.budgetExceeded,
-                    NotificationKind.billDue,
-                    NotificationKind.subscriptionRenewal,
-                    NotificationKind.recurringDue,
-                    NotificationKind.ocrCompleted,
-                    NotificationKind.ocrFailed,
-                  ]) ...[
-                    SwitchListTile(
-                      value: data.isEnabled(kind),
-                      onChanged: (value) =>
-                          controller.setNotification(kind, value),
-                      title: Text(kind.label, style: context.text.titleSmall),
-                      subtitle: Text(
-                        _descriptionFor(kind),
-                        style: context.text.bodySmall,
-                      ),
-                    ),
-                    if (kind != NotificationKind.ocrFailed)
-                      const Divider(height: 1, indent: AppSpacing.lg),
-                  ],
-                ],
+            // Grouped by the same categories the notification centre filters
+            // by, so the switch you turn off here and the chip you tap there
+            // mean the same thing.
+            for (final entry in _grouped.entries) ...[
+              Padding(
+                padding: const EdgeInsets.only(
+                  left: AppSpacing.xs,
+                  bottom: AppSpacing.md,
+                ),
+                child: Text(
+                  entry.key.label.toUpperCase(),
+                  style: context.text.labelSmall
+                      ?.copyWith(color: context.palette.textSecondary),
+                ),
               ),
-            ),
+              AppCard(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                child: Column(
+                  children: [
+                    for (var i = 0; i < entry.value.length; i++) ...[
+                      if (i > 0)
+                        const Divider(height: 1, indent: AppSpacing.lg),
+                      SwitchListTile(
+                        value: data.isEnabled(entry.value[i]),
+                        onChanged: (value) =>
+                            controller.setNotification(entry.value[i], value),
+                        title: Text(
+                          entry.value[i].label,
+                          style: context.text.titleSmall,
+                        ),
+                        subtitle: Text(
+                          _descriptionFor(entry.value[i]),
+                          style: context.text.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              AppSpacing.gapXl,
+            ],
           ],
         ),
         onRetry: () => ref.invalidate(settingsControllerProvider),
       ),
     );
   }
+
+  /// The kinds a user can switch, grouped by category.
+  ///
+  /// Curated rather than `NotificationKind.values`: `goalReached` is always on
+  /// — nobody asks not to be told they hit a savings goal — and
+  /// `creditCardDue` shares the bill-due flag, so showing it would be a second
+  /// switch for the same stored field.
+  static final Map<NotificationCategory, List<NotificationKind>> _grouped = {
+    NotificationCategory.budgets: const [
+      NotificationKind.budgetWarning,
+      NotificationKind.budgetExceeded,
+    ],
+    NotificationCategory.payments: const [
+      NotificationKind.billDue,
+      NotificationKind.subscriptionRenewal,
+      NotificationKind.recurringDue,
+    ],
+    NotificationCategory.imports: const [
+      NotificationKind.ocrCompleted,
+      NotificationKind.ocrFailed,
+    ],
+  };
 
   static String _descriptionFor(NotificationKind kind) => switch (kind) {
         NotificationKind.budgetWarning =>

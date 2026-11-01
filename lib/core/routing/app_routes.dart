@@ -88,6 +88,7 @@ class AppRoutes {
   static const String settings = '/settings';
   static const String settingsProfile = '/settings/profile';
   static const String settingsSecurity = '/settings/security';
+  static const String settingsPrivacyControls = '/settings/privacy-controls';
   static const String settingsNotifications = '/settings/notifications';
   static const String settingsData = '/settings/data';
   static const String settingsAbout = '/settings/about';

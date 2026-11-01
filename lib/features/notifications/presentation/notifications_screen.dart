@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/constants/enums.dart';
 import '../../../core/extensions/context_extensions.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/app_date_utils.dart';
@@ -13,9 +14,10 @@ import '../../../shared/widgets/state_views.dart';
 
 /// The notification centre.
 ///
-/// Read-only by design: budget alerts come from database triggers and bill
-/// reminders from a scheduled function, so what appears here is the system's
-/// judgement rather than something a client could fabricate.
+/// Budget thresholds are raised after a transaction is written, bills and
+/// renewals by the maintenance sweep when the app opens. The list itself is
+/// read-only: a notification can be read, filtered or deleted, never authored
+/// from here.
 class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
 
@@ -23,6 +25,7 @@ class NotificationsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final notifications = ref.watch(notificationsControllerProvider);
     final unread = ref.watch(unreadNotificationsProvider);
+    final visible = ref.watch(filteredNotificationsProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -76,12 +79,104 @@ class NotificationsScreen extends ConsumerWidget {
                   message: 'Budget warnings, bill reminders and finished '
                       'imports will appear here.',
                 )
-              : _NotificationsList(notifications: data),
+              : Column(
+                  children: [
+                    const _NotificationFilters(),
+                    Expanded(
+                      // The filters stay on screen when nothing matches, so
+                      // the way back is visible. An empty state that replaced
+                      // them would strand the user on a filter they could no
+                      // longer see or clear.
+                      child: visible.isEmpty
+                          ? const _NoMatchesState()
+                          : _NotificationsList(notifications: visible),
+                    ),
+                  ],
+                ),
           loading: const _NotificationsSkeleton(),
           onRetry: () =>
               ref.read(notificationsControllerProvider.notifier).refresh(),
         ),
       ),
+    );
+  }
+}
+
+/// Category chips plus an unread toggle.
+///
+/// Four categories rather than nine per-kind filters: nine chips do not fit on
+/// a phone, and nobody wants renewals but not bills.
+class _NotificationFilters extends ConsumerWidget {
+  const _NotificationFilters();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selected = ref.watch(notificationCategoryFilterProvider);
+    final unreadOnly = ref.watch(notificationUnreadOnlyProvider);
+    final counts = ref.watch(notificationCategoryCountsProvider);
+    final unreadCount = ref.watch(unreadNotificationsProvider).length;
+
+    return SizedBox(
+      height: 56,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
+        children: [
+          FilterChip(
+            label: Text('Unread${unreadCount == 0 ? '' : ' · $unreadCount'}'),
+            selected: unreadOnly,
+            onSelected: (value) =>
+                ref.read(notificationUnreadOnlyProvider.notifier).state = value,
+            avatar: unreadOnly
+                ? null
+                : const Icon(Icons.mark_email_unread_outlined, size: 16),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          const VerticalDivider(width: AppSpacing.sm, indent: 12, endIndent: 12),
+          const SizedBox(width: AppSpacing.sm),
+
+          ChoiceChip(
+            label: const Text('All'),
+            selected: selected == null,
+            onSelected: (_) =>
+                ref.read(notificationCategoryFilterProvider.notifier).state =
+                    null,
+          ),
+          for (final category in NotificationCategory.values) ...[
+            const SizedBox(width: AppSpacing.sm),
+            ChoiceChip(
+              label: Text(
+                '${category.label}'
+                '${counts[category] == null ? '' : ' · ${counts[category]}'}',
+              ),
+              selected: selected == category,
+              // Tapping the selected chip clears it, so "All" is not the only
+              // way back.
+              onSelected: (value) =>
+                  ref.read(notificationCategoryFilterProvider.notifier).state =
+                      value ? category : null,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _NoMatchesState extends ConsumerWidget {
+  const _NoMatchesState();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return EmptyState(
+      icon: Icons.filter_alt_off_outlined,
+      title: 'Nothing matches',
+      message: 'No notifications match the filters you have chosen.',
+      actionLabel: 'Clear filters',
+      onAction: () {
+        ref.read(notificationCategoryFilterProvider.notifier).state = null;
+        ref.read(notificationUnreadOnlyProvider.notifier).state = false;
+      },
     );
   }
 }

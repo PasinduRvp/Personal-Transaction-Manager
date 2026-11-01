@@ -6,6 +6,7 @@ import '../../../core/extensions/context_extensions.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/app_date_utils.dart';
+import '../../../core/utils/money.dart';
 import '../../../shared/models/savings_goal.dart';
 import '../../../shared/providers/planning_providers.dart';
 import '../../../shared/providers/profile_providers.dart';
@@ -86,7 +87,7 @@ class SavingsScreen extends ConsumerWidget {
                             Padding(
                               padding: const EdgeInsets.only(bottom: 4),
                               child: Text(
-                                'of ${totals.target.format()}',
+                                'of ${totals.target.formatOrMask(hidden: obscure)}',
                                 style: context.text.bodyMedium,
                               ),
                             ),
@@ -225,7 +226,7 @@ class _GoalCard extends StatelessWidget {
                       obscured: obscured,
                     ),
                     Text(
-                      'of ${goal.targetAmount.format()}',
+                      'of ${goal.targetAmount.formatOrMask(hidden: obscured)}',
                       style: context.text.bodySmall,
                     ),
                   ],
@@ -251,7 +252,7 @@ class _GoalCard extends StatelessWidget {
                 AppSpacing.hGapSm,
                 Expanded(
                   child: Text(
-                    'Set aside ${required.format()} a month to hit your target',
+                    'Set aside ${required.formatOrMask(hidden: obscured)} a month to hit your target',
                     style: context.text.bodySmall,
                   ),
                 ),

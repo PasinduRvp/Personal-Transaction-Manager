@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/extensions/context_extensions.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/utils/money.dart';
 import '../../../shared/models/subscription.dart';
 import '../../../shared/providers/planning_providers.dart';
 import '../../../shared/providers/profile_providers.dart';
@@ -253,7 +254,7 @@ class _SubscriptionRow extends ConsumerWidget {
           // from the billed amount.
           if (subscription.frequency.wire != 'MONTHLY')
             Text(
-              '${subscription.monthlyCost.formatCompact()}/mo',
+              '${subscription.monthlyCost.formatCompactOrMask(hidden: obscured)}/mo',
               style: context.text.labelSmall?.copyWith(letterSpacing: 0),
             ),
         ],

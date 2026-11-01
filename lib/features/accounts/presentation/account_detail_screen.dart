@@ -7,6 +7,7 @@ import '../../../core/extensions/context_extensions.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/app_date_utils.dart';
+import '../../../core/utils/money.dart';
 import '../../../shared/models/account.dart';
 import '../../../shared/models/analytics.dart';
 import '../../../shared/models/transaction.dart';
@@ -421,13 +422,16 @@ class _Body extends ConsumerWidget {
 }
 
 /// Credit card utilisation, with a bar that turns amber as the limit nears.
-class _CreditUsage extends StatelessWidget {
+class _CreditUsage extends ConsumerWidget {
   const _CreditUsage({required this.account});
 
   final Account account;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // A credit limit and the headroom left on it are financial figures like
+    // any other, so they follow the same privacy toggle as the balance above.
+    final hidden = ref.watch(hideAmountsProvider);
     final utilisation = account.creditUtilisation ?? 0;
     final available = account.availableCredit;
 
@@ -445,13 +449,14 @@ class _CreditUsage extends StatelessWidget {
             Expanded(
               child: Text(
                 '${utilisation.toStringAsFixed(0)}% of '
-                '${account.creditLimit!.formatCompact()} used',
+                '${account.creditLimit!.formatCompactOrMask(hidden: hidden)} '
+                'used',
                 style: context.text.bodySmall,
               ),
             ),
             if (available != null)
               Text(
-                '${available.format()} available',
+                '${available.formatOrMask(hidden: hidden)} available',
                 style: context.text.labelMedium?.copyWith(color: color),
               ),
           ],

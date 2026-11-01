@@ -256,7 +256,15 @@ service cloud.firestore {
           && ownIdStamped(uid)
           && isPositiveMinor(request.resource.data.principal_minor)
           && request.resource.data.outstanding_minor
-             == request.resource.data.principal_minor;
+             == request.resource.data.principal_minor
+          // A charge is the lender's own bank fee, so it exists only when you
+          // lent the money by bank transfer. Wallet, Other and anything you
+          // borrowed must carry none — enforced here as well as in the form,
+          // because a hidden field is not a constraint.
+          && (request.resource.data.get('additional_charge_minor', 0) == 0
+              || (request.resource.data.kind == 'LENT'
+                  && request.resource.data.method == 'BANK_TRANSFER'))
+          && request.resource.data.get('additional_charge_minor', 0) >= 0;
         allow update: if owns(uid)
           && ownIdStamped(uid)
           && doesNotTouch(['created_at', 'principal_minor', 'kind', 'account_id']);

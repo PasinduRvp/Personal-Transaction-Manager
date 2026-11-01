@@ -4,9 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/enums.dart';
+import '../../core/services/biometric_service.dart';
 import '../models/profile.dart';
 import 'auth_providers.dart';
 import 'repository_providers.dart';
+// Mutual import with this file, which is legal and safe here: Riverpod
+// providers are lazy, so neither library needs the other's value at load time.
+import 'security_providers.dart';
 
 /// The signed-in user's profile.
 ///
@@ -176,8 +180,58 @@ class SettingsController extends AsyncNotifier<UserSettings> {
   Future<void> setDefaultAccount(String? accountId) =>
       mutate((s) => s.copyWith(defaultAccountId: accountId));
 
-  Future<void> setHideAmounts(bool hide) =>
-      mutate((s) => s.copyWith(hideAmountsOnDashboard: hide));
+  /// Stores the default *and* applies it to this session, so the switch does
+  /// something visible rather than only affecting the next launch.
+  ///
+  /// Hiding is immediate. Revealing goes through [PrivacyModeController.reveal]
+  /// so it still honours [UserSettings.requireBiometricToReveal] — otherwise
+  /// this switch would be a way around the very check it sits next to.
+  Future<BiometricOutcome> setHideAmounts(bool hide) async {
+    await mutate((s) => s.copyWith(hideAmountsOnDashboard: hide));
+
+    final privacy = ref.read(privacyModeControllerProvider.notifier);
+    if (hide) {
+      privacy.hide();
+      return BiometricOutcome.success;
+    }
+    return privacy.reveal();
+  }
+
+  Future<void> setRequireBiometricToReveal(bool required) =>
+      mutate((s) => s.copyWith(requireBiometricToReveal: required));
+
+  Future<void> setAutoHideOnBackground(bool enabled) =>
+      mutate((s) => s.copyWith(autoHideOnBackground: enabled));
+
+  Future<void> setRevealTimeout(int seconds) =>
+      mutate((s) => s.copyWith(revealTimeoutSeconds: seconds));
+
+  Future<void> setAppLockTimeout(int seconds) =>
+      mutate((s) => s.copyWith(appLockTimeoutSeconds: seconds));
+
+  /// Turns the app lock on or off.
+  ///
+  /// Switching it *on* verifies first. A lock you can enable without passing it
+  /// once is a lock you may have just set on someone else's behalf, or with a
+  /// sensor that does not work — either way the next launch would strand the
+  /// owner outside their own records, with no password path back in.
+  Future<BiometricOutcome> setBiometricLock(bool enabled) async {
+    if (!enabled) {
+      await mutate((s) => s.copyWith(biometricLockEnabled: false));
+      return BiometricOutcome.success;
+    }
+
+    final capability = await ref.read(biometricServiceProvider).capability();
+    if (!capability.canAuthenticate) return BiometricOutcome.notEnrolled;
+
+    final outcome = await ref.read(biometricServiceProvider).authenticate(
+          reason: 'Verify to turn on app lock',
+        );
+    if (!outcome.isSuccess) return outcome;
+
+    await mutate((s) => s.copyWith(biometricLockEnabled: true));
+    return BiometricOutcome.success;
+  }
 }
 
 final settingsControllerProvider =
@@ -185,12 +239,17 @@ final settingsControllerProvider =
   SettingsController.new,
 );
 
-/// Whether balances are blurred on the dashboard.
+/// Whether financial figures are hidden right now.
+///
+/// Every screen and every [MoneyText] reads this one provider, so the eye on
+/// the dashboard covers the whole app rather than one screen's figures.
+///
+/// It delegates to [privacyModeControllerProvider] — session state seeded from
+/// [UserSettings.hideAmountsOnDashboard] — rather than reading the stored field
+/// directly, so toggling the eye does not cost a Firestore write. Kept at this
+/// name and in this file because fifteen screens already import it from here.
 final hideAmountsProvider = Provider<bool>((ref) {
-  return ref.watch(settingsControllerProvider).maybeWhen(
-        data: (settings) => settings.hideAmountsOnDashboard,
-        orElse: () => false,
-      );
+  return ref.watch(privacyModeControllerProvider);
 });
 
 /// The avatar's bytes, refreshed when the profile changes.

@@ -126,8 +126,12 @@ class UserSettings extends Equatable {
     this.notifyOcrCompleted = true,
     this.notifyOcrFailed = true,
     this.biometricLockEnabled = false,
+    this.appLockTimeoutSeconds = 0,
     this.defaultAccountId,
     this.hideAmountsOnDashboard = false,
+    this.requireBiometricToReveal = false,
+    this.autoHideOnBackground = true,
+    this.revealTimeoutSeconds = 0,
     this.weekStartsMonday = true,
   });
 
@@ -139,12 +143,43 @@ class UserSettings extends Equatable {
   final bool notifyRecurringDue;
   final bool notifyOcrCompleted;
   final bool notifyOcrFailed;
+
+  /// Whether the app asks for a fingerprint or face before it can be used.
   final bool biometricLockEnabled;
+
+  /// How long the app may sit in the background before the lock reappears.
+  ///
+  /// Zero means lock the moment it leaves the foreground. A grace period
+  /// exists because the lock is otherwise unusable in practice: picking a
+  /// receipt from the gallery backgrounds the app, and re-authenticating to
+  /// get back to the form you were already in teaches people to turn the
+  /// whole feature off.
+  final int appLockTimeoutSeconds;
   final String? defaultAccountId;
 
-  /// Privacy toggle that blurs balances on the dashboard.
+  /// Whether amounts start hidden. This is the persisted default for privacy
+  /// mode; the live on/off state for the session is held in a provider, since
+  /// tapping the eye should not cost a write.
   final bool hideAmountsOnDashboard;
+
+  /// Whether revealing hidden amounts needs a biometric check.
+  ///
+  /// Only meaningful with a biometric enrolled; the settings screen keeps it
+  /// switched off and disabled otherwise rather than offering a lock with no
+  /// key.
+  final bool requireBiometricToReveal;
+
+  /// Whether amounts re-hide when the app goes to the background, so they are
+  /// not in the task-switcher screenshot.
+  final bool autoHideOnBackground;
+
+  /// How long revealed amounts stay visible. Zero means until hidden manually.
+  final int revealTimeoutSeconds;
   final bool weekStartsMonday;
+
+  /// Whether any privacy setting is doing something, for the settings subtitle.
+  bool get hasPrivacyProtection =>
+      hideAmountsOnDashboard || requireBiometricToReveal || biometricLockEnabled;
 
   bool isEnabled(NotificationKind kind) => switch (kind) {
         NotificationKind.budgetWarning => notifyBudgetWarning,
@@ -173,8 +208,14 @@ class UserSettings extends Equatable {
             json.boolVal('notify_ocr_completed', fallback: true),
         notifyOcrFailed: json.boolVal('notify_ocr_failed', fallback: true),
         biometricLockEnabled: json.boolVal('biometric_lock_enabled'),
+        appLockTimeoutSeconds: json.intVal('app_lock_timeout_seconds'),
         defaultAccountId: json.strOrNull('default_account_id'),
         hideAmountsOnDashboard: json.boolVal('hide_amounts_on_dashboard'),
+        requireBiometricToReveal:
+            json.boolVal('require_biometric_to_reveal'),
+        autoHideOnBackground:
+            json.boolVal('auto_hide_on_background', fallback: true),
+        revealTimeoutSeconds: json.intVal('reveal_timeout_seconds'),
         weekStartsMonday: json.boolVal('week_starts_monday', fallback: true),
       );
 
@@ -187,8 +228,12 @@ class UserSettings extends Equatable {
         'notify_ocr_completed': notifyOcrCompleted,
         'notify_ocr_failed': notifyOcrFailed,
         'biometric_lock_enabled': biometricLockEnabled,
+        'app_lock_timeout_seconds': appLockTimeoutSeconds,
         'default_account_id': defaultAccountId,
         'hide_amounts_on_dashboard': hideAmountsOnDashboard,
+        'require_biometric_to_reveal': requireBiometricToReveal,
+        'auto_hide_on_background': autoHideOnBackground,
+        'reveal_timeout_seconds': revealTimeoutSeconds,
         'week_starts_monday': weekStartsMonday,
       };
 
@@ -201,8 +246,12 @@ class UserSettings extends Equatable {
     bool? notifyOcrCompleted,
     bool? notifyOcrFailed,
     bool? biometricLockEnabled,
+    int? appLockTimeoutSeconds,
     Object? defaultAccountId = _sentinel,
     bool? hideAmountsOnDashboard,
+    bool? requireBiometricToReveal,
+    bool? autoHideOnBackground,
+    int? revealTimeoutSeconds,
     bool? weekStartsMonday,
   }) =>
       UserSettings(
@@ -217,11 +266,19 @@ class UserSettings extends Equatable {
         notifyOcrFailed: notifyOcrFailed ?? this.notifyOcrFailed,
         biometricLockEnabled:
             biometricLockEnabled ?? this.biometricLockEnabled,
+        appLockTimeoutSeconds:
+            appLockTimeoutSeconds ?? this.appLockTimeoutSeconds,
         defaultAccountId: defaultAccountId == _sentinel
             ? this.defaultAccountId
             : defaultAccountId as String?,
         hideAmountsOnDashboard:
             hideAmountsOnDashboard ?? this.hideAmountsOnDashboard,
+        requireBiometricToReveal:
+            requireBiometricToReveal ?? this.requireBiometricToReveal,
+        autoHideOnBackground:
+            autoHideOnBackground ?? this.autoHideOnBackground,
+        revealTimeoutSeconds:
+            revealTimeoutSeconds ?? this.revealTimeoutSeconds,
         weekStartsMonday: weekStartsMonday ?? this.weekStartsMonday,
       );
 
@@ -238,8 +295,12 @@ class UserSettings extends Equatable {
         notifyOcrCompleted,
         notifyOcrFailed,
         biometricLockEnabled,
+        appLockTimeoutSeconds,
         defaultAccountId,
         hideAmountsOnDashboard,
+        requireBiometricToReveal,
+        autoHideOnBackground,
+        revealTimeoutSeconds,
         weekStartsMonday,
       ];
 }

@@ -26,6 +26,8 @@ class Budget extends Equatable {
     this.category,
     this.spent,
     this.spentPeriodStart,
+    this.alertedPeriodStart,
+    this.alertedLevels = const [],
     required this.createdAt,
     required this.updatedAt,
   });
@@ -60,6 +62,17 @@ class Budget extends Equatable {
   /// it means nothing.
   final Money? spent;
   final DateTime? spentPeriodStart;
+
+  /// Which period the thresholds in [alertedLevels] were raised for.
+  ///
+  /// Kept on the budget rather than inferred from the notifications that exist,
+  /// so deleting a "75% spent" notification does not cause the next transaction
+  /// to raise it again. When this does not match the current period the fired
+  /// set is treated as empty, which is what makes a new month start clean.
+  final DateTime? alertedPeriodStart;
+
+  /// [BudgetAlertLevel.wire] values already raised for [alertedPeriodStart].
+  final List<String> alertedLevels;
 
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -119,6 +132,8 @@ class Budget extends Equatable {
       category: categoryJson == null ? null : Category.fromJson(categoryJson),
       spent: json.moneyOrNull('spent'),
       spentPeriodStart: json.dateOrNull('spent_period_start'),
+      alertedPeriodStart: json.dateOrNull('alerted_period_start'),
+      alertedLevels: json.stringList('alerted_levels'),
       createdAt: json.dateVal('created_at'),
       updatedAt: json.dateVal('updated_at'),
     );
@@ -176,6 +191,8 @@ class Budget extends Equatable {
         category: category ?? this.category,
         spent: spent,
         spentPeriodStart: spentPeriodStart,
+        alertedPeriodStart: alertedPeriodStart,
+        alertedLevels: alertedLevels,
         createdAt: createdAt,
         updatedAt: DateTime.now(),
       );
@@ -255,6 +272,34 @@ class BudgetProgress extends Equatable {
     if (percentUsed >= 90) return BudgetHealth.critical;
     if (isAtThreshold) return BudgetHealth.warning;
     return BudgetHealth.healthy;
+  }
+
+  /// Every threshold this period's spending has reached, lowest first.
+  List<BudgetAlertLevel> get reachedLevels => BudgetAlertLevel.values
+      .where((level) => level.reachedBy(percentUsed))
+      .toList(growable: false);
+
+  /// Whether the budget's recorded alert state belongs to the period now in
+  /// view. When it does not, the period has rolled over and nothing has been
+  /// raised yet for the new one.
+  bool get hasAlertStateForPeriod {
+    final stamped = budget.alertedPeriodStart;
+    return stamped != null && AppDateUtils.isSameDay(stamped, range.start);
+  }
+
+  /// Thresholds reached that have not been announced for this period.
+  ///
+  /// A single transaction can push a budget past several at once — from 70% to
+  /// 105% — and all of them are returned, so the user gets both the "you are
+  /// close" and the "you are over" rather than only whichever the code
+  /// happened to check first.
+  List<BudgetAlertLevel> get pendingAlerts {
+    final fired = hasAlertStateForPeriod
+        ? budget.alertedLevels.toSet()
+        : const <String>{};
+    return reachedLevels
+        .where((level) => !fired.contains(level.wire))
+        .toList(growable: false);
   }
 
   @override

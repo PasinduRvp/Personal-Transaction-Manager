@@ -16,6 +16,7 @@ import 'package:finora/shared/widgets/transaction_tile.dart';
 import 'package:finora/core/utils/app_date_utils.dart';
 import 'package:finora/features/ocr/presentation/widgets/confidence_field.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Widget tests for the pieces whose rendering carries meaning: amounts, their
@@ -24,10 +25,16 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   /// Wraps a widget in the real app theme, so colour assertions test what a user
   /// would actually see rather than Flutter's defaults.
+  /// The `ProviderScope` is required, not decorative: [MoneyText] reads the
+  /// global privacy toggle, so it is a `ConsumerWidget`. The toggle's own
+  /// provider deliberately reads nothing at build time, so an empty scope gives
+  /// the real default — amounts visible — without Firebase being initialised.
   Widget host(Widget child, {Brightness brightness = Brightness.light}) {
-    return MaterialApp(
-      theme: brightness == Brightness.light ? AppTheme.light : AppTheme.dark,
-      home: Scaffold(body: Center(child: child)),
+    return ProviderScope(
+      child: MaterialApp(
+        theme: brightness == Brightness.light ? AppTheme.light : AppTheme.dark,
+        home: Scaffold(body: Center(child: child)),
+      ),
     );
   }
 
@@ -357,6 +364,65 @@ void main() {
 
       final editableTextSize = tester.getSize(find.byType(EditableText));
       expect(editableTextSize.width, greaterThan(100));
+    });
+  });
+
+  group('PickerField', () {
+    // A placeholder beside a leading icon used to be painted twice: once by the
+    // decorator's hint at the content origin and once by the child after the
+    // icon. On screen that was an unreadable smear ("tioOptional"), so these
+    // assert the string appears exactly once in every combination.
+    testWidgets('draws an empty placeholder once beside a leading icon',
+        (tester) async {
+      await tester.pumpWidget(host(
+        SizedBox(
+          width: 360,
+          child: PickerField(
+            label: 'Expected back by',
+            placeholder: 'Optional',
+            leading: const Icon(Icons.event_available_outlined, size: 20),
+            onTap: () {},
+          ),
+        ),
+      ));
+
+      expect(find.text('Optional'), findsOneWidget);
+      expect(find.byIcon(Icons.event_available_outlined), findsOneWidget);
+    });
+
+    testWidgets('draws an empty placeholder once with no leading icon',
+        (tester) async {
+      await tester.pumpWidget(host(
+        SizedBox(
+          width: 360,
+          child: PickerField(
+            label: 'Held in account',
+            placeholder: 'Optional',
+            onTap: () {},
+          ),
+        ),
+      ));
+
+      expect(find.text('Optional'), findsOneWidget);
+    });
+
+    testWidgets('shows the value instead of the placeholder once set',
+        (tester) async {
+      await tester.pumpWidget(host(
+        SizedBox(
+          width: 360,
+          child: PickerField(
+            label: 'Date',
+            placeholder: 'Optional',
+            value: '30 Oct 2026',
+            leading: const Icon(Icons.event_outlined, size: 20),
+            onTap: () {},
+          ),
+        ),
+      ));
+
+      expect(find.text('30 Oct 2026'), findsOneWidget);
+      expect(find.text('Optional'), findsNothing);
     });
   });
 

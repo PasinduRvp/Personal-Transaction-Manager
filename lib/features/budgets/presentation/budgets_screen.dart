@@ -196,7 +196,7 @@ class _BudgetTotals extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(
-                  'of ${limit.format()}',
+                  'of ${limit.formatOrMask(hidden: obscured)}',
                   style: context.text.bodyMedium,
                 ),
               ),
@@ -216,8 +216,8 @@ class _BudgetTotals extends StatelessWidget {
           AppSpacing.gapMd,
           Text(
             isOver
-                ? 'Over budget by ${remaining.abs.format()}'
-                : '${remaining.format()} left to spend',
+                ? 'Over budget by ${remaining.abs.formatOrMask(hidden: obscured)}'
+                : '${remaining.formatOrMask(hidden: obscured)} left to spend',
             style: context.text.bodyMedium?.copyWith(
               color: isOver ? context.palette.danger : null,
             ),

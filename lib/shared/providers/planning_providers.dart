@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/enums.dart';
@@ -12,6 +14,7 @@ import '../models/transaction.dart';
 import 'account_providers.dart';
 import 'auth_providers.dart';
 import 'dashboard_providers.dart';
+import 'notification_providers.dart';
 import 'profile_providers.dart';
 import 'repository_providers.dart';
 
@@ -244,6 +247,10 @@ class LendingController extends AsyncNotifier<List<LendingRecord>> {
     required LendingKind kind,
     required Money principal,
     required String accountId,
+    required LendingMethod method,
+    Money? transferAmount,
+    Money? additionalCharge,
+    String? chargeDescription,
     DateTime? date,
     String? notes,
     DateTime? dueDate,
@@ -253,11 +260,21 @@ class LendingController extends AsyncNotifier<List<LendingRecord>> {
           kind: kind,
           principal: principal,
           accountId: accountId,
+          method: method,
+          transferAmount: transferAmount,
+          additionalCharge: additionalCharge,
+          chargeDescription: chargeDescription,
           date: date,
           notes: notes,
           dueDate: dueDate,
         );
     ref.invalidate(accountsControllerProvider);
+    // A bank charge posts a real expense, so the budgets and the dashboard
+    // totals have moved too — and that expense can be the one that takes a
+    // budget past a threshold, so the alert sweep runs here as well.
+    ref.invalidate(budgetsControllerProvider);
+    ref.invalidate(dashboardControllerProvider);
+    if (created.hasCharge) unawaited(sweepBudgetAlerts(ref));
     await _reload();
     return created;
   }
@@ -320,18 +337,98 @@ final lendingHistoryProvider =
   return ref.watch(lendingRepositoryProvider).fetchHistory(lendingId);
 });
 
-/// What you're owed minus what you owe, across open lendings in the app's
-/// currency — the net figure a summary card wants.
-final lendingNetProvider = Provider<Money>((ref) {
+/// Totals and counts for one direction of lending.
+class LendingSummary {
+  const LendingSummary({
+    required this.total,
+    required this.repaid,
+    required this.outstanding,
+    required this.pending,
+    required this.partiallyRepaid,
+    required this.fullyRepaid,
+  });
+
+  LendingSummary.empty(String currency)
+      : total = Money.zero(currency),
+        repaid = Money.zero(currency),
+        outstanding = Money.zero(currency),
+        pending = 0,
+        partiallyRepaid = 0,
+        fullyRepaid = 0;
+
+  /// Original amounts, repayments received or made, and what is still open.
+  final Money total;
+  final Money repaid;
+  final Money outstanding;
+
+  final int pending;
+  final int partiallyRepaid;
+  final int fullyRepaid;
+
+  /// Records that still have a balance to settle.
+  int get active => pending + partiallyRepaid;
+
+  bool get isEmpty => pending + partiallyRepaid + fullyRepaid == 0;
+}
+
+LendingSummary _summarise(Iterable<LendingRecord> records, String currency) {
+  var total = Money.zero(currency);
+  var repaid = Money.zero(currency);
+  var outstanding = Money.zero(currency);
+  var pending = 0;
+  var partial = 0;
+  var full = 0;
+
+  for (final record in records) {
+    // Mixing currencies into one total would state a figure that is not true
+    // in either of them.
+    if (record.currency != currency) continue;
+
+    total += record.principal;
+    repaid += record.repaidAmount;
+    outstanding += record.outstanding;
+
+    switch (record.status) {
+      case LendingStatus.pending:
+        pending++;
+      case LendingStatus.partiallyRepaid:
+        partial++;
+      case LendingStatus.fullyRepaid:
+        full++;
+    }
+  }
+
+  return LendingSummary(
+    total: total,
+    repaid: repaid,
+    outstanding: outstanding,
+    pending: pending,
+    partiallyRepaid: partial,
+    fullyRepaid: full,
+  );
+}
+
+/// Money you lent — what others owe you.
+final moneyLentSummaryProvider = Provider<LendingSummary>((ref) {
   final currency = ref.watch(currencyProvider);
   final lendings = ref.watch(lendingControllerProvider).valueOrNull ?? const [];
+  return _summarise(lendings.where((l) => l.kind.isReceivable), currency);
+});
 
-  var net = Money.zero(currency);
-  for (final lending in lendings) {
-    if (lending.isSettled || lending.currency != currency) continue;
-    net += lending.kind.isReceivable ? lending.outstanding : -lending.outstanding;
-  }
-  return net;
+/// Money you borrowed — what you owe others.
+final moneyBorrowedSummaryProvider = Provider<LendingSummary>((ref) {
+  final currency = ref.watch(currencyProvider);
+  final lendings = ref.watch(lendingControllerProvider).valueOrNull ?? const [];
+  return _summarise(lendings.where((l) => !l.kind.isReceivable), currency);
+});
+
+/// What you're owed minus what you owe, across open lendings in the app's
+/// currency — the one combined figure, kept separate from the two above so
+/// money owed to you is never mixed with money you owe.
+final lendingNetProvider = Provider<Money>((ref) {
+  final lent = ref.watch(moneyLentSummaryProvider);
+  final borrowed = ref.watch(moneyBorrowedSummaryProvider);
+  return lent.outstanding - borrowed.outstanding;
 });
 
 // ---------------------------------------------------------------------------

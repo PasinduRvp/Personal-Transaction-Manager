@@ -29,6 +29,13 @@ dependencies:
   # Storage / local
   shared_preferences: ^2.3.4
   flutter_secure_storage: ^9.2.2
+
+  # Device biometrics, for the app lock and for revealing hidden balances.
+  #
+  # The fingerprint or face never reaches this app: `local_auth` asks the
+  # platform's own keyguard to make the decision and gets back a yes or a no.
+  # There is nothing here to store, and nothing to leak.
+  local_auth: ^2.3.0
   path_provider: ^2.1.5
   path: ^1.9.0
 

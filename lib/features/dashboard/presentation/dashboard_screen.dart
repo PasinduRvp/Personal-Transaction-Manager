@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/constants/enums.dart';
 import '../../../core/extensions/context_extensions.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -12,6 +13,7 @@ import '../../../shared/providers/dashboard_providers.dart';
 import '../../../shared/providers/notification_providers.dart';
 import '../../../shared/models/transaction_query.dart';
 import '../../../shared/providers/profile_providers.dart';
+import '../../../shared/providers/security_providers.dart';
 import '../../../shared/providers/transaction_providers.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../../../shared/widgets/charts.dart';
@@ -258,7 +260,6 @@ class _DashboardHeader extends ConsumerWidget {
     final unread = ref.watch(unreadNotificationStreamProvider).valueOrNull ??
         ref.watch(unreadNotificationCountProvider).valueOrNull ??
         0;
-    final obscure = ref.watch(hideAmountsProvider);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -310,20 +311,67 @@ class _DashboardHeader extends ConsumerWidget {
               ],
             ),
           ),
-          IconButton(
-            onPressed: () => ref
-                .read(settingsControllerProvider.notifier)
-                .setHideAmounts(!obscure),
-            icon: Icon(
-              obscure
-                  ? Icons.visibility_off_outlined
-                  : Icons.visibility_outlined,
-            ),
-            tooltip: obscure ? 'Show amounts' : 'Hide amounts',
-          ),
+          const _ThemeToggle(),
+          const _PrivacyToggle(),
           _NotificationBell(unreadCount: unread),
         ],
       ),
+    );
+  }
+}
+
+/// Hides and reveals every figure in the app.
+///
+/// Session state, not a stored setting: covering the screen is something you do
+/// now, and it should not cost a write or survive to the next launch. The
+/// stored default lives in Settings, under Security & privacy.
+///
+/// Hiding is always immediate. Revealing may ask for a fingerprint first, when
+/// the user has required one — so a borrowed phone left unlocked on a desk does
+/// not give up its balances to a single tap.
+class _PrivacyToggle extends ConsumerWidget {
+  const _PrivacyToggle();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hidden = ref.watch(hideAmountsProvider);
+
+    return IconButton(
+      onPressed: () async {
+        final outcome =
+            await ref.read(privacyModeControllerProvider.notifier).toggle();
+        if (!context.mounted || !outcome.isWorthReporting) return;
+        AppFeedback.showInfo(context, outcome.message);
+      },
+      icon: Icon(
+        hidden ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+      ),
+      tooltip: hidden ? 'Show amounts' : 'Hide amounts',
+    );
+  }
+}
+
+/// Flips straight between light and dark from the header.
+///
+/// Deliberately not a menu: the three-way choice, including System, stays in
+/// Settings. When the preference is System this shows whichever theme the
+/// device is actually in, and tapping commits to the opposite one explicitly —
+/// which is what someone reaching for a sun or moon icon is asking for.
+class _ThemeToggle extends ConsumerWidget {
+  const _ThemeToggle();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return IconButton(
+      onPressed: () => ref
+          .read(profileControllerProvider.notifier)
+          .setThemeMode(isDark ? AppThemeMode.light : AppThemeMode.dark),
+      icon: Icon(
+        isDark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+      ),
+      tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
     );
   }
 }

@@ -280,7 +280,7 @@ class MonthSummaryCard extends ConsumerWidget {
               icon: Icons.trending_down_rounded,
               color: context.palette.expense,
               message: 'You have spent '
-                  '${obscured ? '****' : data.monthSummary.savings.abs.format()} more than you '
+                  '${data.monthSummary.savings.abs.formatOrMask(hidden: obscured)} more than you '
                   'earned this month.',
             ),
           ],
@@ -775,8 +775,8 @@ class BudgetProgressRow extends StatelessWidget {
                     const SizedBox(height: 1),
                     Text(
                       progress.isExceeded
-                          ? 'Over by ${progress.overspend.format()}'
-                          : '${progress.remaining.format()} left · '
+                          ? 'Over by ${progress.overspend.formatOrMask(hidden: obscured)}'
+                          : '${progress.remaining.formatOrMask(hidden: obscured)} left · '
                               '${progress.daysRemaining} '
                               'day${progress.daysRemaining == 1 ? '' : 's'}',
                       style: context.text.bodySmall?.copyWith(
@@ -798,7 +798,7 @@ class BudgetProgressRow extends StatelessWidget {
                     obscured: obscured,
                   ),
                   Text(
-                    'of ${progress.limit.formatCompact()}',
+                    'of ${progress.limit.formatCompactOrMask(hidden: obscured)}',
                     style: context.text.labelSmall?.copyWith(letterSpacing: 0),
                   ),
                 ],
@@ -938,7 +938,7 @@ class SavingsGoalRow extends StatelessWidget {
                     Text(
                       goal.isReached
                           ? 'Goal reached'
-                          : '${goal.remaining.format()} to go',
+                          : '${goal.remaining.formatOrMask(hidden: obscured)} to go',
                       style: context.text.bodySmall?.copyWith(
                         color: goal.isReached ? context.palette.income : null,
                       ),

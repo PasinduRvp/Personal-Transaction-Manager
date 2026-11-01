@@ -260,6 +260,30 @@ class Money implements Comparable<Money> {
   String toString() => '${format(showSymbol: false)} $currency';
 }
 
+/// What a hidden figure shows instead of itself.
+///
+/// One constant so the mask is identical everywhere. A balance masked as
+/// `****` beside a subtitle masked as `•••` would look like two different
+/// kinds of hidden, which invites the reader to wonder what the difference is.
+const String kMoneyMask = '****';
+
+/// Formatting that honours privacy mode.
+///
+/// [MoneyText] hides itself, but plenty of figures are interpolated into
+/// sentences — "of Rs 50,000", "Rs 1,200 left to spend" — and a `Text` built
+/// that way cannot hide itself. Without this they stayed on screen while the
+/// headline figure above them was masked, which leaked the very number the
+/// user had just covered up.
+extension MoneyPrivacy on Money {
+  /// [format], or the mask when [hidden].
+  String formatOrMask({required bool hidden, bool showDecimals = true}) =>
+      hidden ? kMoneyMask : format(showDecimals: showDecimals);
+
+  /// [formatCompact], or the mask when [hidden].
+  String formatCompactOrMask({required bool hidden}) =>
+      hidden ? kMoneyMask : formatCompact();
+}
+
 /// Sums an iterable of [Money]. All entries must share a currency; an empty
 /// iterable yields zero in [currency].
 extension MoneyIterable on Iterable<Money> {

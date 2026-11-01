@@ -6,11 +6,17 @@ import 'base_repository.dart';
 
 /// Reads the notification centre, at `users/{uid}/notifications`.
 ///
-/// There is no create method, and the security rules deny client creates
-/// outright: notifications are written by Firestore triggers and the scheduled
-/// function. That is deliberate — an alert that says "budget exceeded" should be
-/// the server's judgement, not something a client can fabricate. Clients may
-/// only mark one read or delete it.
+/// This class only reads and clears. Alerts are *written* by the services that
+/// decide them — [BudgetAlertService] for thresholds, [MaintenanceRunner] for
+/// bills and renewals — each using a derived document id so repeating the
+/// decision cannot produce a duplicate row.
+///
+/// On the paid plan the rules denied client creates outright and a Cloud
+/// Function was the only writer, which meant an alert saying "budget exceeded"
+/// was the server's judgement rather than something a client could fabricate.
+/// With no functions on the free plan the client has to write them, so that
+/// particular guarantee is gone; what remains is that the only person who could
+/// fabricate an alert is the one it would be shown to.
 class NotificationRepository extends BaseRepository {
   NotificationRepository({super.firestore});
 

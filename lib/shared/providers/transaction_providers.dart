@@ -12,6 +12,8 @@ import '../models/transaction_query.dart';
 import '../repositories/transaction_repository.dart';
 import 'account_providers.dart';
 import 'auth_providers.dart';
+import 'notification_providers.dart';
+import 'planning_providers.dart';
 import 'repository_providers.dart';
 
 /// The active search, filter and sort state of the transaction list.
@@ -380,6 +382,14 @@ class TransactionWriter extends AsyncNotifier<void> {
     ref.invalidate(transactionListControllerProvider);
     ref.invalidate(accountsControllerProvider);
     ref.invalidate(transactionCountProvider);
+    ref.invalidate(budgetsControllerProvider);
+
+    // Budget thresholds are evaluated here rather than in the repository,
+    // because the spend figures are only correct once the write has committed
+    // — and because a failure to raise an alert must not surface as a failure
+    // to save the transaction. Deliberately not awaited: the form should close
+    // as soon as the transaction is saved.
+    unawaited(sweepBudgetAlerts(ref));
   }
 }
 

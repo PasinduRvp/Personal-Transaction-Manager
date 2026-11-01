@@ -295,7 +295,7 @@ class _TransactionsCalendarViewState
                 ),
                 if (selectedDayItems.isNotEmpty)
                   Text(
-                    'Spent: ${selectedDayTotal.formatCompact()}',
+                    'Spent: ${selectedDayTotal.formatCompactOrMask(hidden: obscure)}',
                     style: context.text.labelMedium?.copyWith(
                       color: context.palette.expense,
                     ),

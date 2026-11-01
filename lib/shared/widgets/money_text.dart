@@ -1,10 +1,11 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/enums.dart';
 import '../../core/extensions/context_extensions.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/money.dart';
+import '../providers/profile_providers.dart';
 
 /// How prominent a monetary figure is.
 enum MoneySize { hero, large, row, small }
@@ -14,7 +15,15 @@ enum MoneySize { hero, large, row, small }
 /// Colour carries meaning here: income green, expense red, transfers blue,
 /// neutral for balances. Centralising it means a figure cannot be shown in the
 /// wrong colour on one screen, which in a finance app reads as a wrong number.
-class MoneyText extends StatelessWidget {
+///
+/// Privacy mode is honoured here rather than at each call site. Every figure in
+/// the app goes through this widget, so reading [hideAmountsProvider] once
+/// means the eye on the dashboard covers all of them — including the screens
+/// that never passed [obscured] and would otherwise have quietly leaked a
+/// balance while the rest of the app was covered. The [obscured] flag still
+/// works and is OR-ed with the global state, so a caller can hide a figure the
+/// global toggle is not hiding, but never reveal one it is.
+class MoneyText extends ConsumerWidget {
   const MoneyText(
     this.amount, {
     super.key,
@@ -64,13 +73,13 @@ class MoneyText extends StatelessWidget {
   final Color? color;
   final bool compact;
 
-  /// Replaces the figure with dots, for the privacy toggle.
+  /// Hides this figure regardless of the global privacy toggle.
   final bool obscured;
   final TextAlign? textAlign;
   final bool decimals;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final resolved = color ?? _colorFor(context);
     final style = switch (size) {
       MoneySize.hero => AppTypography.amountHero(resolved),
@@ -79,9 +88,9 @@ class MoneyText extends StatelessWidget {
       MoneySize.small => AppTypography.numericSmall(resolved),
     };
 
-    if (obscured) {
+    if (obscured || ref.watch(hideAmountsProvider)) {
       return Text(
-        '****',
+        kMoneyMask,
         style: style.copyWith(letterSpacing: 2),
         textAlign: textAlign,
       );

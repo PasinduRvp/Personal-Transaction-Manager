@@ -106,13 +106,13 @@ class _Body extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'of ${lending.principal.format()}',
+                    'of ${lending.principal.formatOrMask(hidden: obscure)}',
                     style: context.text.titleSmall,
                   ),
                   Text(
                     lending.isSettled
                         ? 'Fully settled'
-                        : '${lending.repaidAmount.format()} repaid',
+                        : '${lending.repaidAmount.formatOrMask(hidden: obscure)} repaid',
                     style: context.text.bodyMedium?.copyWith(
                       color: lending.isSettled ? context.palette.income : null,
                     ),
@@ -143,14 +143,60 @@ class _Body extends ConsumerWidget {
           child: Column(
             children: [
               DetailRow(
-                label: 'Principal',
+                label: 'Status',
                 icon: Icons.flag_outlined,
+                valueWidget: AppChipLabel(
+                  label: lending.status.label,
+                  color: switch (lending.status) {
+                    LendingStatus.pending => context.palette.textSecondary,
+                    LendingStatus.partiallyRepaid => context.palette.warning,
+                    LendingStatus.fullyRepaid => context.palette.income,
+                  },
+                ),
+              ),
+              const Divider(height: 1),
+              DetailRow(
+                label: lending.kind.isReceivable
+                    ? 'They must repay'
+                    : 'You must repay',
+                icon: Icons.account_balance_outlined,
                 valueWidget: MoneyText(
                   lending.principal,
                   size: MoneySize.row,
                   obscured: obscure,
                 ),
               ),
+              const Divider(height: 1),
+              DetailRow(
+                label: lending.kind.isReceivable
+                    ? 'Transfer method'
+                    : 'Received method',
+                icon: Icons.swap_horiz_rounded,
+                value: lending.method.label,
+              ),
+              if (lending.hasCharge) ...[
+                const Divider(height: 1),
+                DetailRow(
+                  label: lending.chargeDescription ?? 'Additional charge',
+                  icon: Icons.receipt_long_outlined,
+                  valueWidget: MoneyText(
+                    lending.additionalCharge!,
+                    size: MoneySize.row,
+                    color: context.palette.expense,
+                    obscured: obscure,
+                  ),
+                ),
+                const Divider(height: 1),
+                DetailRow(
+                  label: 'Total it cost you',
+                  icon: Icons.summarize_outlined,
+                  valueWidget: MoneyText(
+                    lending.totalOutflow,
+                    size: MoneySize.row,
+                    obscured: obscure,
+                  ),
+                ),
+              ],
               const Divider(height: 1),
               DetailRow(
                 label: 'Account',

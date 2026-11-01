@@ -4,10 +4,12 @@ import '../../core/constants/enums.dart';
 import '../../core/errors/app_exception.dart';
 import '../../core/services/firebase_service.dart';
 import '../../core/utils/money.dart';
+import '../models/budget.dart';
 import '../models/json_map.dart';
 import '../models/lending.dart';
 import '../models/transaction.dart';
 import 'base_repository.dart';
+import 'ledger_writer.dart';
 
 /// Money lent to, or borrowed from, someone who is not tracked as an account
 /// of their own — at `users/{uid}/lendings`.
@@ -48,6 +50,10 @@ class LendingRepository extends BaseRepository {
     required LendingKind kind,
     required Money principal,
     required String accountId,
+    required LendingMethod method,
+    Money? transferAmount,
+    Money? additionalCharge,
+    String? chargeDescription,
     DateTime? date,
     String? notes,
     DateTime? dueDate,
@@ -63,15 +69,51 @@ class LendingRepository extends BaseRepository {
           );
         }
 
+        final transferred = transferAmount ?? principal;
+        if (transferred.isZero || transferred.isNegative) {
+          throw const ValidationException(
+            'The transfer amount must be greater than zero.',
+          );
+        }
+
+        // The charge rule is enforced here, not only by hiding the fields:
+        // a stale value left over from a method the user switched away from
+        // must never reach the ledger as a fee.
+        final chargeAllowed = kind.isReceivable && method.allowsAdditionalCharge;
+        final charge =
+            chargeAllowed && additionalCharge != null && !additionalCharge.isZero
+                ? additionalCharge
+                : null;
+
+        if (charge != null && charge.isNegative) {
+          throw const ValidationException(
+            'The additional charge cannot be negative.',
+          );
+        }
+
+        final chargeNote = charge == null
+            ? null
+            : (chargeDescription?.trim().isNotEmpty ?? false)
+                ? chargeDescription!.trim()
+                : _defaultChargeDescription;
+
         final occurredOn = date ?? DateTime.now();
         final ref = _col.doc();
         final txRef = FirebaseService.transactions(userId).doc();
+        final feeRef =
+            charge == null ? null : FirebaseService.transactions(userId).doc();
 
         // You handed the money over when you lent it; you received it when
         // you borrowed — the same direction the principal's leg takes.
         final direction = kind.isReceivable
             ? TransferDirection.out
             : TransferDirection.incoming;
+
+        // Read before the Firestore transaction: the client SDK cannot run a
+        // query inside one, and the fee is a real expense that has to land in
+        // the budgets like any other.
+        final budgets = charge == null ? const <Budget>[] : await _activeBudgets();
+        final feeCategoryId = charge == null ? null : await _feeCategoryId();
 
         await db.runTransaction((tx) async {
           final account =
@@ -83,23 +125,30 @@ class LendingRepository extends BaseRepository {
             'kind': kind.wire,
             ...moneyFields('principal', principal),
             ...moneyFields('outstanding', principal, withCurrency: false),
+            ...moneyFields('transfer_amount', transferred,
+                withCurrency: false),
+            ...moneyFields('additional_charge', charge, withCurrency: false),
             'account_id': accountId,
+            'method': method.wire,
+            'charge_description': chargeNote,
+            'fee_transaction_id': feeRef?.id,
             'notes': notes,
             'due_date': dueDate == null ? null : dateOnly(dueDate),
             'user_id': userId,
             ...createdFields(),
           });
 
+          // The principal leg moves what the other party actually received.
           tx.set(txRef, {
             'user_id': userId,
             'account_id': accountId,
             'category_id': null,
             'type': TransactionType.transfer.wire,
-            ...moneyFields('amount', principal),
+            ...moneyFields('amount', transferred),
             'description':
                 kind.isReceivable ? 'Lent to $name' : 'Borrowed from $name',
             'merchant': null,
-            'payment_method': null,
+            'payment_method': method.asPaymentMethod.wire,
             'transaction_date': Timestamp.fromDate(occurredOn),
             'notes': notes,
             'document_id': null,
@@ -117,15 +166,91 @@ class LendingRepository extends BaseRepository {
           tx.update(FirebaseService.accounts(userId).doc(accountId), {
             minorKey('current_balance'): FieldValue.increment(
               direction == TransferDirection.incoming
-                  ? principal.minorUnits
-                  : -principal.minorUnits,
+                  ? transferred.minorUnits
+                  : -transferred.minorUnits,
             ),
             ...updatedFields(),
           });
+
+          if (feeRef == null || charge == null) return;
+
+          // The bank's cut is your own expense, not the borrower's debt: it
+          // is a real EXPENSE transaction so it counts in the rollups and
+          // budgets, while the outstanding balance above stays untouched.
+          tx.set(feeRef, {
+            'user_id': userId,
+            'account_id': accountId,
+            'category_id': feeCategoryId,
+            'type': TransactionType.expense.wire,
+            ...moneyFields('amount', charge),
+            'description': chargeNote,
+            'merchant': null,
+            'payment_method': PaymentMethod.bankTransfer.wire,
+            'transaction_date': Timestamp.fromDate(occurredOn),
+            'notes': null,
+            'document_id': null,
+            'source': TransactionSource.manual.wire,
+            'status': TransactionStatus.confirmed.wire,
+            'transfer_group_id': null,
+            'reference_number': null,
+            'lending_id': ref.id,
+            'is_split': false,
+            'search_terms': searchTerms([chargeNote, name]),
+            ...createdFields(),
+          });
+
+          LedgerWriter.apply(
+            tx,
+            userId: userId,
+            before: null,
+            after: LedgerEffect(
+              accountId: accountId,
+              categoryId: feeCategoryId,
+              type: TransactionType.expense,
+              status: TransactionStatus.confirmed,
+              currency: charge.currency,
+              amountMinor: charge.minorUnits.abs(),
+              date: occurredOn,
+              merchant: null,
+              paymentMethod: PaymentMethod.bankTransfer.wire,
+              transferDirection: null,
+            ),
+            budgets: budgets,
+          );
         });
 
         return fetchById(ref.id);
       });
+
+  /// The default wording for a bank transfer charge, when the user does not
+  /// replace it.
+  static const String _defaultChargeDescription = 'Bank Transfer Fee';
+
+  /// The category a transfer charge belongs in.
+  ///
+  /// Best-effort by name: 'Banking Fees' if the user made one, otherwise the
+  /// seeded 'Fees & Charges'. A miss falls back to no category rather than
+  /// failing the lending, since an uncategorised expense is still a truthful
+  /// one.
+  Future<String?> _feeCategoryId() async {
+    final index = await relations.load();
+    String? fallback;
+
+    for (final entry in index.categories.entries) {
+      final name = entry.value.str('name').trim().toLowerCase();
+      if (name == 'banking fees') return entry.key;
+      if (name == 'fees & charges') fallback = entry.key;
+    }
+    return fallback;
+  }
+
+  Future<List<Budget>> _activeBudgets() async {
+    final snapshot = await FirebaseService.budgets(userId).get();
+    return snapshot.docs
+        .map((doc) => Budget.fromJson(doc.asJson))
+        .where((b) => !b.isArchived)
+        .toList(growable: false);
+  }
 
   /// Records a repayment: reduces the outstanding balance and posts the
   /// money moving the other way.
@@ -257,25 +382,38 @@ class LendingRepository extends BaseRepository {
             .where('lending_id', isEqualTo: id)
             .get();
 
+        // A fee leg is a real expense, so reversing it has to put the rollups
+        // and budgets back too — which needs the budgets read up front.
+        final hasFeeLeg = history.docs.any((doc) =>
+            TransactionType.fromWire(doc.asJson.strOrNull('type')) !=
+            TransactionType.transfer);
+        final budgets = hasFeeLeg ? await _activeBudgets() : const <Budget>[];
+
         await db.runTransaction((tx) async {
           for (final doc in history.docs) {
-            final data = doc.asJson;
-            final accountId = data.strOrNull('account_id');
-            if (accountId == null) continue;
-
-            final direction = TransferDirection.fromWire(
-              data.strOrNull('transfer_direction'),
-            );
-            final amount = data.money('amount');
-            final signedMinor = direction == TransferDirection.incoming
-                ? amount.minorUnits
-                : -amount.minorUnits;
-
+            final before = LedgerWriter.effectOf(doc.asJson);
             tx.delete(doc.reference);
-            tx.update(FirebaseService.accounts(userId).doc(accountId), {
-              minorKey('current_balance'): FieldValue.increment(-signedMinor),
-              ...updatedFields(),
-            });
+            if (before == null) continue;
+
+            if (before.type.isTransfer) {
+              if (!before.counts) continue;
+              tx.update(
+                FirebaseService.accounts(userId).doc(before.accountId),
+                {
+                  minorKey('current_balance'):
+                      FieldValue.increment(-before.signedMinor),
+                  ...updatedFields(),
+                },
+              );
+            } else {
+              LedgerWriter.apply(
+                tx,
+                userId: userId,
+                before: before,
+                after: null,
+                budgets: budgets,
+              );
+            }
           }
           tx.delete(_col.doc(id));
         });

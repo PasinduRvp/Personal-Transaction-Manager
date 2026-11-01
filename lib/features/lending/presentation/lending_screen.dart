@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/constants/enums.dart';
 import '../../../core/extensions/context_extensions.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/app_date_utils.dart';
+import '../../../core/utils/money.dart';
 import '../../../shared/models/lending.dart';
 import '../../../shared/providers/planning_providers.dart';
 import '../../../shared/providers/profile_providers.dart';
@@ -21,6 +23,8 @@ class LendingScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final lendings = ref.watch(lendingControllerProvider);
     final net = ref.watch(lendingNetProvider);
+    final lentSummary = ref.watch(moneyLentSummaryProvider);
+    final borrowedSummary = ref.watch(moneyBorrowedSummaryProvider);
     final obscure = ref.watch(hideAmountsProvider);
 
     return Scaffold(
@@ -68,29 +72,56 @@ class LendingScreen extends ConsumerWidget {
                 AppSpacing.xxl,
               ),
               children: [
-                if (!net.isZero) ...[
-                  AppCard(
-                    padding: const EdgeInsets.all(AppSpacing.xl),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          net.isPositive ? 'Owed to you overall' : 'You owe overall',
-                          style: context.text.labelMedium,
-                        ),
-                        AppSpacing.gapSm,
-                        MoneyText(
-                          net.abs,
-                          size: MoneySize.hero,
-                          obscured: obscure,
-                          color: net.isPositive
-                              ? context.palette.income
-                              : context.palette.danger,
-                        ),
-                      ],
+                if (!lentSummary.isEmpty || !borrowedSummary.isEmpty) ...[
+                  if (!net.isZero) ...[
+                    AppCard(
+                      padding: const EdgeInsets.all(AppSpacing.xl),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            net.isPositive
+                                ? 'Owed to you overall'
+                                : 'You owe overall',
+                            style: context.text.labelMedium,
+                          ),
+                          AppSpacing.gapSm,
+                          MoneyText(
+                            net.abs,
+                            size: MoneySize.hero,
+                            obscured: obscure,
+                            color: net.isPositive
+                                ? context.palette.income
+                                : context.palette.danger,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  AppSpacing.gapXl,
+                    AppSpacing.gapLg,
+                  ],
+                  if (!lentSummary.isEmpty) ...[
+                    _SummaryCard(
+                      title: 'Money I lent',
+                      summary: lentSummary,
+                      outstandingLabel: 'Outstanding from others',
+                      repaidLabel: 'Received back',
+                      accent: context.palette.income,
+                      obscured: obscure,
+                    ),
+                    AppSpacing.gapMd,
+                  ],
+                  if (!borrowedSummary.isEmpty) ...[
+                    _SummaryCard(
+                      title: 'Money I borrowed',
+                      summary: borrowedSummary,
+                      outstandingLabel: 'Outstanding I owe',
+                      repaidLabel: 'Paid back',
+                      accent: context.palette.danger,
+                      obscured: obscure,
+                    ),
+                    AppSpacing.gapMd,
+                  ],
+                  AppSpacing.gapMd,
                 ],
 
                 if (owedToYou.isNotEmpty) ...[
@@ -163,6 +194,122 @@ class LendingScreen extends ConsumerWidget {
   }
 }
 
+/// Totals and record counts for one direction, kept in its own card so money
+/// owed to you is never shown mixed with money you owe.
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({
+    required this.title,
+    required this.summary,
+    required this.outstandingLabel,
+    required this.repaidLabel,
+    required this.accent,
+    this.obscured = false,
+  });
+
+  final String title;
+  final LendingSummary summary;
+  final String outstandingLabel;
+  final String repaidLabel;
+  final Color accent;
+  final bool obscured;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: context.text.titleSmall),
+          AppSpacing.gapLg,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _Figure(
+                  label: outstandingLabel,
+                  amount: summary.outstanding,
+                  color: accent,
+                  obscured: obscured,
+                ),
+              ),
+              AppSpacing.hGapLg,
+              Expanded(
+                child: _Figure(
+                  label: repaidLabel,
+                  amount: summary.repaid,
+                  obscured: obscured,
+                ),
+              ),
+            ],
+          ),
+          AppSpacing.gapLg,
+          _Figure(
+            label: 'Total $title'.toLowerCase(),
+            amount: summary.total,
+            obscured: obscured,
+          ),
+          AppSpacing.gapLg,
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              if (summary.pending > 0)
+                AppChipLabel(
+                  label: '${summary.pending} pending',
+                  dense: true,
+                ),
+              if (summary.partiallyRepaid > 0)
+                AppChipLabel(
+                  label: '${summary.partiallyRepaid} partly repaid',
+                  color: context.palette.warning,
+                  dense: true,
+                ),
+              if (summary.fullyRepaid > 0)
+                AppChipLabel(
+                  label: '${summary.fullyRepaid} settled',
+                  color: context.palette.income,
+                  icon: Icons.check_rounded,
+                  dense: true,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Figure extends StatelessWidget {
+  const _Figure({
+    required this.label,
+    required this.amount,
+    this.color,
+    this.obscured = false,
+  });
+
+  final String label;
+  final Money amount;
+  final Color? color;
+  final bool obscured;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: context.text.bodySmall),
+        const SizedBox(height: 2),
+        MoneyText(
+          amount,
+          size: MoneySize.row,
+          color: color,
+          obscured: obscured,
+        ),
+      ],
+    );
+  }
+}
+
 class _LendingCard extends StatelessWidget {
   const _LendingCard({required this.lending, this.obscured = false});
 
@@ -203,6 +350,19 @@ class _LendingCard extends StatelessWidget {
                     color: lending.isOverdue ? context.palette.warning : null,
                   ),
                 ),
+                AppSpacing.gapSm,
+                AppChipLabel(
+                  label: lending.status.label,
+                  color: switch (lending.status) {
+                    LendingStatus.pending => context.palette.textSecondary,
+                    LendingStatus.partiallyRepaid => context.palette.warning,
+                    LendingStatus.fullyRepaid => context.palette.income,
+                  },
+                  icon: lending.status == LendingStatus.fullyRepaid
+                      ? Icons.check_rounded
+                      : null,
+                  dense: true,
+                ),
               ],
             ),
           ),
@@ -221,7 +381,7 @@ class _LendingCard extends StatelessWidget {
               ),
               if (!lending.isSettled)
                 Text(
-                  'of ${lending.principal.format()}',
+                  'of ${lending.principal.formatOrMask(hidden: obscured)}',
                   style: context.text.bodySmall,
                 ),
             ],
