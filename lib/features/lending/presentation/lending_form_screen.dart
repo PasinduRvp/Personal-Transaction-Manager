@@ -9,6 +9,7 @@ import '../../../core/utils/app_date_utils.dart';
 import '../../../core/utils/money.dart';
 import '../../../core/utils/validators.dart';
 import '../../../shared/models/account.dart';
+import '../../../shared/models/lending.dart';
 import '../../../shared/providers/account_providers.dart';
 import '../../../shared/providers/planning_providers.dart';
 import '../../../shared/providers/profile_providers.dart';
@@ -20,7 +21,9 @@ import '../../../shared/widgets/pickers.dart';
 /// Records money lent to, or borrowed from, someone — the principal amount,
 /// who it is, and which of the user's accounts it moved through.
 class LendingFormScreen extends ConsumerStatefulWidget {
-  const LendingFormScreen({super.key});
+  const LendingFormScreen({super.key, this.initialLending});
+
+  final LendingRecord? initialLending;
 
   @override
   ConsumerState<LendingFormScreen> createState() => _LendingFormScreenState();
@@ -34,8 +37,9 @@ class _LendingFormScreenState extends ConsumerState<LendingFormScreen> {
 
   final _transferController = TextEditingController();
   final _chargeController = TextEditingController();
-  final _chargeDescriptionController =
-      TextEditingController(text: 'Bank Transfer Fee');
+  final _chargeDescriptionController = TextEditingController(
+    text: 'Bank Transfer Fee',
+  );
 
   LendingKind _kind = LendingKind.lent;
   LendingMethod _method = LendingMethod.wallet;
@@ -43,11 +47,24 @@ class _LendingFormScreenState extends ConsumerState<LendingFormScreen> {
   DateTime _date = DateTime.now();
   DateTime? _dueDate;
   bool _isSubmitting = false;
+  bool _additionalDefaultsLoaded = false;
+
+  bool get _isAdditional => widget.initialLending != null;
 
   /// The charge only applies to money you lent by bank transfer. Borrowing
   /// never carries one, and the other methods have nothing to charge.
   bool get _chargeApplies =>
       _kind == LendingKind.lent && _method.allowsAdditionalCharge;
+
+  @override
+  void initState() {
+    super.initState();
+    final lending = widget.initialLending;
+    if (lending == null) return;
+    _personController.text = lending.personName;
+    _kind = lending.kind;
+    _dueDate = lending.dueDate;
+  }
 
   @override
   void dispose() {
@@ -69,10 +86,10 @@ class _LendingFormScreenState extends ConsumerState<LendingFormScreen> {
   }
 
   static IconData _iconForMethod(LendingMethod method) => switch (method) {
-        LendingMethod.wallet => Icons.account_balance_wallet_outlined,
-        LendingMethod.bankTransfer => Icons.account_balance_outlined,
-        LendingMethod.other => Icons.more_horiz_rounded,
-      };
+    LendingMethod.wallet => Icons.account_balance_wallet_outlined,
+    LendingMethod.bankTransfer => Icons.account_balance_outlined,
+    LendingMethod.other => Icons.more_horiz_rounded,
+  };
 
   Future<void> _pickMethod() async {
     final picked = await AppFeedback.showSheet<LendingMethod>(
@@ -128,10 +145,7 @@ class _LendingFormScreenState extends ConsumerState<LendingFormScreen> {
 
     final amount = Money.tryParse(_amountController.text, account.currency);
     if (amount == null || amount.isZero || amount.isNegative) {
-      AppFeedback.showValidation(
-        context,
-        'Enter an amount greater than zero.',
-      );
+      AppFeedback.showValidation(context, 'Enter an amount greater than zero.');
       return;
     }
 
@@ -150,26 +164,52 @@ class _LendingFormScreenState extends ConsumerState<LendingFormScreen> {
           ? null
           : Money.tryParse(_transferController.text, account.currency);
 
-      await ref.read(lendingControllerProvider.notifier).create(
-            personName: _personController.text.trim(),
-            kind: _kind,
-            principal: amount,
-            accountId: account.id,
-            method: _method,
-            transferAmount: transferred,
-            additionalCharge: charge,
-            chargeDescription: _chargeApplies
-                ? _chargeDescriptionController.text.trim()
-                : null,
-            date: _date,
-            notes: _notesController.text.trim().isEmpty
-                ? null
-                : _notesController.text.trim(),
-            dueDate: _dueDate,
-          );
+      if (_isAdditional) {
+        await ref
+            .read(lendingControllerProvider.notifier)
+            .addAmount(
+              lending: widget.initialLending!,
+              principal: amount,
+              accountId: account.id,
+              method: _method,
+              transferAmount: transferred,
+              additionalCharge: charge,
+              chargeDescription: _chargeApplies
+                  ? _chargeDescriptionController.text.trim()
+                  : null,
+              date: _date,
+              notes: _notesController.text.trim().isEmpty
+                  ? null
+                  : _notesController.text.trim(),
+              dueDate: _dueDate,
+            );
+      } else {
+        await ref
+            .read(lendingControllerProvider.notifier)
+            .create(
+              personName: _personController.text.trim(),
+              kind: _kind,
+              principal: amount,
+              accountId: account.id,
+              method: _method,
+              transferAmount: transferred,
+              additionalCharge: charge,
+              chargeDescription: _chargeApplies
+                  ? _chargeDescriptionController.text.trim()
+                  : null,
+              date: _date,
+              notes: _notesController.text.trim().isEmpty
+                  ? null
+                  : _notesController.text.trim(),
+              dueDate: _dueDate,
+            );
+      }
 
       if (!mounted) return;
-      AppFeedback.showSuccess(context, 'Recorded');
+      AppFeedback.showSuccess(
+        context,
+        _isAdditional ? 'Additional amount recorded' : 'Recorded',
+      );
       context.pop();
     } on Object catch (error) {
       if (mounted) AppFeedback.showError(context, error);
@@ -181,41 +221,52 @@ class _LendingFormScreenState extends ConsumerState<LendingFormScreen> {
   @override
   Widget build(BuildContext context) {
     final accounts = ref.watch(activeAccountsProvider);
+
+    if (_isAdditional && !_additionalDefaultsLoaded) {
+      final lending = widget.initialLending!;
+      _account ??= ref.read(accountByIdProvider(lending.accountId));
+      _method = lending.method;
+      _additionalDefaultsLoaded = true;
+    }
     final String currency = _account?.currency ?? ref.watch(currencyProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Record lending')),
+      appBar: AppBar(
+        title: Text(_isAdditional ? 'Add lending amount' : 'Record lending'),
+      ),
       body: SafeArea(
         child: Form(
           key: _formKey,
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.page),
             children: [
-              SegmentedButton<LendingKind>(
-                segments: const [
-                  ButtonSegment(
-                    value: LendingKind.lent,
-                    label: Text('I lent'),
-                    icon: Icon(Icons.call_made_rounded),
-                  ),
-                  ButtonSegment(
-                    value: LendingKind.borrowed,
-                    label: Text('I borrowed'),
-                    icon: Icon(Icons.call_received_rounded),
-                  ),
-                ],
-                selected: {_kind},
-                onSelectionChanged: (selected) => setState(() {
-                  _kind = selected.first;
-                  // Borrowing never carries a lender's bank charge.
-                  _clearChargeIfUnavailable();
-                }),
-              ),
+              if (!_isAdditional)
+                SegmentedButton<LendingKind>(
+                  segments: const [
+                    ButtonSegment(
+                      value: LendingKind.lent,
+                      label: Text('I lent'),
+                      icon: Icon(Icons.call_made_rounded),
+                    ),
+                    ButtonSegment(
+                      value: LendingKind.borrowed,
+                      label: Text('I borrowed'),
+                      icon: Icon(Icons.call_received_rounded),
+                    ),
+                  ],
+                  selected: {_kind},
+                  onSelectionChanged: (selected) => setState(() {
+                    _kind = selected.first;
+                    // Borrowing never carries a lender's bank charge.
+                    _clearChargeIfUnavailable();
+                  }),
+                ),
               AppSpacing.gapXl,
 
               TextFormField(
                 controller: _personController,
-                autofocus: true,
+                autofocus: !_isAdditional,
+                readOnly: _isAdditional,
                 textCapitalization: TextCapitalization.words,
                 validator: (value) =>
                     Validators.required(value, field: 'Their name'),
@@ -288,9 +339,9 @@ class _LendingFormScreenState extends ConsumerState<LendingFormScreen> {
                 compact: true,
                 helperText: _kind == LendingKind.lent
                     ? 'Only if what left your account differs from the amount '
-                        'above'
+                          'above'
                     : 'Only if what reached your account differs from the '
-                        'amount above',
+                          'amount above',
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) return null;
                   final transferred = Money.tryParse(value, currency);
@@ -378,7 +429,8 @@ class _LendingFormScreenState extends ConsumerState<LendingFormScreen> {
                 onTap: () async {
                   final picked = await DateTimePickers.pickFutureDate(
                     context,
-                    initial: _dueDate ??
+                    initial:
+                        _dueDate ??
                         DateTime.now().add(const Duration(days: 30)),
                     helpText: 'Expected back by',
                   );

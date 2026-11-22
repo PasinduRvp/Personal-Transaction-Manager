@@ -267,7 +267,7 @@ service cloud.firestore {
           && request.resource.data.get('additional_charge_minor', 0) >= 0;
         allow update: if owns(uid)
           && ownIdStamped(uid)
-          && doesNotTouch(['created_at', 'principal_minor', 'kind', 'account_id']);
+          && doesNotTouch(['created_at', 'kind', 'account_id']);
         allow delete: if owns(uid);
       }
 

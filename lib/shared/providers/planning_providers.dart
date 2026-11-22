@@ -46,7 +46,9 @@ class BudgetsController extends AsyncNotifier<List<BudgetProgress>> {
   }
 
   Future<void> setArchived(String id, {required bool archived}) async {
-    await ref.read(budgetRepositoryProvider).setArchived(id, archived: archived);
+    await ref
+        .read(budgetRepositoryProvider)
+        .setArchived(id, archived: archived);
     await _reload();
   }
 
@@ -66,11 +68,13 @@ class BudgetsController extends AsyncNotifier<List<BudgetProgress>> {
 
 final budgetsControllerProvider =
     AsyncNotifierProvider<BudgetsController, List<BudgetProgress>>(
-  BudgetsController.new,
-);
+      BudgetsController.new,
+    );
 
-final budgetProgressByIdProvider =
-    Provider.family<BudgetProgress?, String>((ref, id) {
+final budgetProgressByIdProvider = Provider.family<BudgetProgress?, String>((
+  ref,
+  id,
+) {
   final budgets = ref.watch(budgetsControllerProvider).valueOrNull;
   if (budgets == null) return null;
   for (final progress in budgets) {
@@ -80,12 +84,9 @@ final budgetProgressByIdProvider =
 });
 
 /// Budgets at or over their alert threshold, for the dashboard warning card.
-final budgetsNeedingAttentionProvider =
-    Provider<List<BudgetProgress>>((ref) {
+final budgetsNeedingAttentionProvider = Provider<List<BudgetProgress>>((ref) {
   final budgets = ref.watch(budgetsControllerProvider).valueOrNull ?? const [];
-  final flagged = budgets
-      .where((b) => b.isExceeded || b.isAtThreshold)
-      .toList()
+  final flagged = budgets.where((b) => b.isExceeded || b.isAtThreshold).toList()
     ..sort((a, b) => b.percentUsed.compareTo(a.percentUsed));
   return flagged;
 });
@@ -94,10 +95,7 @@ final budgetsNeedingAttentionProvider =
 /// offer them twice — the database also enforces uniqueness.
 final budgetedCategoryIdsProvider = Provider<Set<String>>((ref) {
   final budgets = ref.watch(budgetsControllerProvider).valueOrNull ?? const [];
-  return budgets
-      .map((b) => b.budget.categoryId)
-      .nonNulls
-      .toSet();
+  return budgets.map((b) => b.budget.categoryId).nonNulls.toSet();
 });
 
 // ---------------------------------------------------------------------------
@@ -130,7 +128,9 @@ class SavingsController extends AsyncNotifier<List<SavingsGoal>> {
     String? note,
     String? fromAccountId,
   }) async {
-    await ref.read(savingsRepositoryProvider).contribute(
+    await ref
+        .read(savingsRepositoryProvider)
+        .contribute(
           goal: goal,
           amount: amount,
           occurredOn: occurredOn,
@@ -150,7 +150,9 @@ class SavingsController extends AsyncNotifier<List<SavingsGoal>> {
     String? note,
     String? toAccountId,
   }) async {
-    await ref.read(savingsRepositoryProvider).withdraw(
+    await ref
+        .read(savingsRepositoryProvider)
+        .withdraw(
           goal: goal,
           amount: amount,
           occurredOn: occurredOn,
@@ -190,11 +192,13 @@ class SavingsController extends AsyncNotifier<List<SavingsGoal>> {
 
 final savingsControllerProvider =
     AsyncNotifierProvider<SavingsController, List<SavingsGoal>>(
-  SavingsController.new,
-);
+      SavingsController.new,
+    );
 
-final savingsGoalByIdProvider =
-    Provider.family<SavingsGoal?, String>((ref, id) {
+final savingsGoalByIdProvider = Provider.family<SavingsGoal?, String>((
+  ref,
+  id,
+) {
   final goals = ref.watch(savingsControllerProvider).valueOrNull;
   if (goals == null) return null;
   for (final goal in goals) {
@@ -205,30 +209,31 @@ final savingsGoalByIdProvider =
 
 final savingsContributionsProvider =
     FutureProvider.family<List<SavingsContribution>, String>((ref, goalId) {
-  return ref.watch(savingsRepositoryProvider).fetchContributions(goalId);
-});
+      return ref.watch(savingsRepositoryProvider).fetchContributions(goalId);
+    });
 
 /// Combined progress across active goals, for the savings summary card.
 final savingsTotalsProvider =
     Provider<({Money saved, Money target, double percent})>((ref) {
-  final currency = ref.watch(currencyProvider);
-  final goals = ref.watch(savingsControllerProvider).valueOrNull ?? const [];
+      final currency = ref.watch(currencyProvider);
+      final goals =
+          ref.watch(savingsControllerProvider).valueOrNull ?? const [];
 
-  var saved = Money.zero(currency);
-  var target = Money.zero(currency);
+      var saved = Money.zero(currency);
+      var target = Money.zero(currency);
 
-  for (final goal in goals) {
-    if (goal.isArchived || goal.targetAmount.currency != currency) continue;
-    saved += goal.currentAmount;
-    target += goal.targetAmount;
-  }
+      for (final goal in goals) {
+        if (goal.isArchived || goal.targetAmount.currency != currency) continue;
+        saved += goal.currentAmount;
+        target += goal.targetAmount;
+      }
 
-  return (
-    saved: saved,
-    target: target,
-    percent: target.isZero ? 0.0 : saved.percentOf(target).clamp(0, 100),
-  );
-});
+      return (
+        saved: saved,
+        target: target,
+        percent: target.isZero ? 0.0 : saved.percentOf(target).clamp(0, 100),
+      );
+    });
 
 // ---------------------------------------------------------------------------
 // Lending — money lent to, or borrowed from, someone who is not an account
@@ -255,7 +260,9 @@ class LendingController extends AsyncNotifier<List<LendingRecord>> {
     String? notes,
     DateTime? dueDate,
   }) async {
-    final created = await ref.read(lendingRepositoryProvider).create(
+    final created = await ref
+        .read(lendingRepositoryProvider)
+        .create(
           personName: personName,
           kind: kind,
           principal: principal,
@@ -279,6 +286,41 @@ class LendingController extends AsyncNotifier<List<LendingRecord>> {
     return created;
   }
 
+  Future<LendingRecord> addAmount({
+    required LendingRecord lending,
+    required Money principal,
+    required String accountId,
+    required LendingMethod method,
+    Money? transferAmount,
+    Money? additionalCharge,
+    String? chargeDescription,
+    DateTime? date,
+    String? notes,
+    DateTime? dueDate,
+  }) async {
+    final updated = await ref
+        .read(lendingRepositoryProvider)
+        .addAmount(
+          lending: lending,
+          principal: principal,
+          accountId: accountId,
+          method: method,
+          transferAmount: transferAmount,
+          additionalCharge: additionalCharge,
+          chargeDescription: chargeDescription,
+          date: date,
+          notes: notes,
+          dueDate: dueDate,
+        );
+    ref.invalidate(accountsControllerProvider);
+    ref.invalidate(budgetsControllerProvider);
+    ref.invalidate(dashboardControllerProvider);
+    ref.invalidate(lendingHistoryProvider(lending.id));
+    if (updated.hasCharge) unawaited(sweepBudgetAlerts(ref));
+    await _reload();
+    return updated;
+  }
+
   Future<void> recordRepayment({
     required LendingRecord lending,
     required Money amount,
@@ -286,7 +328,9 @@ class LendingController extends AsyncNotifier<List<LendingRecord>> {
     String? notes,
     String? accountId,
   }) async {
-    await ref.read(lendingRepositoryProvider).recordRepayment(
+    await ref
+        .read(lendingRepositoryProvider)
+        .recordRepayment(
           lending: lending,
           amount: amount,
           date: date,
@@ -320,8 +364,8 @@ class LendingController extends AsyncNotifier<List<LendingRecord>> {
 
 final lendingControllerProvider =
     AsyncNotifierProvider<LendingController, List<LendingRecord>>(
-  LendingController.new,
-);
+      LendingController.new,
+    );
 
 final lendingByIdProvider = Provider.family<LendingRecord?, String>((ref, id) {
   final lendings = ref.watch(lendingControllerProvider).valueOrNull;
@@ -332,10 +376,11 @@ final lendingByIdProvider = Provider.family<LendingRecord?, String>((ref, id) {
   return null;
 });
 
-final lendingHistoryProvider =
-    FutureProvider.family<List<Transaction>, String>((ref, lendingId) {
-  return ref.watch(lendingRepositoryProvider).fetchHistory(lendingId);
-});
+final lendingHistoryProvider = FutureProvider.family<List<Transaction>, String>(
+  (ref, lendingId) {
+    return ref.watch(lendingRepositoryProvider).fetchHistory(lendingId);
+  },
+);
 
 /// Totals and counts for one direction of lending.
 class LendingSummary {
@@ -349,12 +394,12 @@ class LendingSummary {
   });
 
   LendingSummary.empty(String currency)
-      : total = Money.zero(currency),
-        repaid = Money.zero(currency),
-        outstanding = Money.zero(currency),
-        pending = 0,
-        partiallyRepaid = 0,
-        fullyRepaid = 0;
+    : total = Money.zero(currency),
+      repaid = Money.zero(currency),
+      outstanding = Money.zero(currency),
+      pending = 0,
+      partiallyRepaid = 0,
+      fullyRepaid = 0;
 
   /// Original amounts, repayments received or made, and what is still open.
   final Money total;
@@ -460,7 +505,9 @@ class BillsController extends AsyncNotifier<List<Bill>> {
     DateTime? paidOn,
     Money? amount,
   }) async {
-    final transactionId = await ref.read(billRepositoryProvider).markPaid(
+    final transactionId = await ref
+        .read(billRepositoryProvider)
+        .markPaid(
           billId: billId,
           accountId: accountId,
           paidOn: paidOn,
@@ -494,8 +541,7 @@ final billsControllerProvider =
     AsyncNotifierProvider<BillsController, List<Bill>>(BillsController.new);
 
 /// Bills grouped into the urgency buckets the Bills screen renders.
-final billBucketsProvider =
-    Provider<Map<BillBucket, List<Bill>>>((ref) {
+final billBucketsProvider = Provider<Map<BillBucket, List<Bill>>>((ref) {
   final bills = ref.watch(billsControllerProvider).valueOrNull ?? const [];
   return BillTotals.groupByBucket(bills);
 });
@@ -559,23 +605,24 @@ class SubscriptionsController extends AsyncNotifier<List<Subscription>> {
 
 final subscriptionsControllerProvider =
     AsyncNotifierProvider<SubscriptionsController, List<Subscription>>(
-  SubscriptionsController.new,
-);
+      SubscriptionsController.new,
+    );
 
 /// Monthly and yearly subscription cost, normalised across billing periods so
 /// yearly and monthly plans can be added together.
 final subscriptionTotalsProvider =
     Provider<({Money monthly, Money yearly, int activeCount})>((ref) {
-  final currency = ref.watch(currencyProvider);
-  final subscriptions =
-      ref.watch(subscriptionsControllerProvider).valueOrNull ?? const [];
-  return (
-    monthly: SubscriptionTotals.monthly(subscriptions, currency),
-    yearly: SubscriptionTotals.yearly(subscriptions, currency),
-    activeCount:
-        subscriptions.where((s) => s.isActive && !s.isArchived).length,
-  );
-});
+      final currency = ref.watch(currencyProvider);
+      final subscriptions =
+          ref.watch(subscriptionsControllerProvider).valueOrNull ?? const [];
+      return (
+        monthly: SubscriptionTotals.monthly(subscriptions, currency),
+        yearly: SubscriptionTotals.yearly(subscriptions, currency),
+        activeCount: subscriptions
+            .where((s) => s.isActive && !s.isArchived)
+            .length,
+      );
+    });
 
 final renewingSoonProvider = Provider<List<Subscription>>((ref) {
   final subscriptions =
@@ -583,8 +630,10 @@ final renewingSoonProvider = Provider<List<Subscription>>((ref) {
   return SubscriptionTotals.renewingSoon(subscriptions);
 });
 
-final subscriptionByIdProvider =
-    Provider.family<Subscription?, String>((ref, id) {
+final subscriptionByIdProvider = Provider.family<Subscription?, String>((
+  ref,
+  id,
+) {
   final subscriptions = ref.watch(subscriptionsControllerProvider).valueOrNull;
   if (subscriptions == null) return null;
   for (final subscription in subscriptions) {
@@ -635,11 +684,13 @@ class RecurringController extends AsyncNotifier<List<RecurringTransaction>> {
 
 final recurringControllerProvider =
     AsyncNotifierProvider<RecurringController, List<RecurringTransaction>>(
-  RecurringController.new,
-);
+      RecurringController.new,
+    );
 
-final recurringByIdProvider =
-    Provider.family<RecurringTransaction?, String>((ref, id) {
+final recurringByIdProvider = Provider.family<RecurringTransaction?, String>((
+  ref,
+  id,
+) {
   final items = ref.watch(recurringControllerProvider).valueOrNull;
   if (items == null) return null;
   for (final item in items) {

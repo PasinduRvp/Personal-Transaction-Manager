@@ -40,6 +40,7 @@ import '../../features/transactions/presentation/transaction_detail_screen.dart'
 import '../../features/transactions/presentation/transaction_form_screen.dart';
 import '../../features/transactions/presentation/transactions_screen.dart';
 import '../../shared/providers/auth_providers.dart';
+import '../../shared/providers/planning_providers.dart';
 import '../constants/enums.dart';
 import '../utils/app_date_utils.dart';
 import 'app_routes.dart';
@@ -117,9 +118,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.verifyEmail,
-        builder: (context, state) => VerifyEmailScreen(
-          email: state.uri.queryParameters['email'],
-        ),
+        builder: (context, state) =>
+            VerifyEmailScreen(email: state.uri.queryParameters['email']),
       ),
 
       // --- The five tabs ---------------------------------------------------
@@ -174,7 +174,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       // --- Pushed over the shell -------------------------------------------
       // These sit outside the branches so they cover the bottom navigation,
       // which is right for a focused task like entering a transaction.
-
       GoRoute(
         path: AppRoutes.transactionAdd,
         parentNavigatorKey: rootKey,
@@ -188,9 +187,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/transactions/:id',
         parentNavigatorKey: rootKey,
-        builder: (context, state) => TransactionDetailScreen(
-          transactionId: state.pathParameters['id']!,
-        ),
+        builder: (context, state) =>
+            TransactionDetailScreen(transactionId: state.pathParameters['id']!),
         routes: [
           GoRoute(
             path: 'edit',
@@ -222,16 +220,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/accounts/:id',
         parentNavigatorKey: rootKey,
-        builder: (context, state) => AccountDetailScreen(
-          accountId: state.pathParameters['id']!,
-        ),
+        builder: (context, state) =>
+            AccountDetailScreen(accountId: state.pathParameters['id']!),
         routes: [
           GoRoute(
             path: 'edit',
             parentNavigatorKey: rootKey,
-            builder: (context, state) => AccountFormScreen(
-              accountId: state.pathParameters['id'],
-            ),
+            builder: (context, state) =>
+                AccountFormScreen(accountId: state.pathParameters['id']),
           ),
         ],
       ),
@@ -256,9 +252,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/budgets/:id/edit',
         parentNavigatorKey: rootKey,
-        builder: (context, state) => BudgetFormScreen(
-          budgetId: state.pathParameters['id'],
-        ),
+        builder: (context, state) =>
+            BudgetFormScreen(budgetId: state.pathParameters['id']),
       ),
 
       GoRoute(
@@ -274,16 +269,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/savings/:id',
         parentNavigatorKey: rootKey,
-        builder: (context, state) => SavingsDetailScreen(
-          goalId: state.pathParameters['id']!,
-        ),
+        builder: (context, state) =>
+            SavingsDetailScreen(goalId: state.pathParameters['id']!),
         routes: [
           GoRoute(
             path: 'edit',
             parentNavigatorKey: rootKey,
-            builder: (context, state) => SavingsFormScreen(
-              goalId: state.pathParameters['id'],
-            ),
+            builder: (context, state) =>
+                SavingsFormScreen(goalId: state.pathParameters['id']),
           ),
         ],
       ),
@@ -301,9 +294,21 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/lending/:id',
         parentNavigatorKey: rootKey,
-        builder: (context, state) => LendingDetailScreen(
-          lendingId: state.pathParameters['id']!,
-        ),
+        builder: (context, state) =>
+            LendingDetailScreen(lendingId: state.pathParameters['id']!),
+        routes: [
+          GoRoute(
+            path: 'add',
+            parentNavigatorKey: rootKey,
+            builder: (context, state) {
+              final lendingId = state.pathParameters['id']!;
+              final lending = ref.read(lendingByIdProvider(lendingId));
+              return lending == null
+                  ? LendingDetailScreen(lendingId: lendingId)
+                  : LendingFormScreen(initialLending: lending);
+            },
+          ),
+        ],
       ),
 
       GoRoute(
@@ -319,9 +324,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/bills/:id/edit',
         parentNavigatorKey: rootKey,
-        builder: (context, state) => BillFormScreen(
-          billId: state.pathParameters['id'],
-        ),
+        builder: (context, state) =>
+            BillFormScreen(billId: state.pathParameters['id']),
       ),
 
       GoRoute(
@@ -337,9 +341,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/subscriptions/:id/edit',
         parentNavigatorKey: rootKey,
-        builder: (context, state) => SubscriptionFormScreen(
-          subscriptionId: state.pathParameters['id'],
-        ),
+        builder: (context, state) =>
+            SubscriptionFormScreen(subscriptionId: state.pathParameters['id']),
       ),
 
       GoRoute(
@@ -355,9 +358,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/recurring/:id/edit',
         parentNavigatorKey: rootKey,
-        builder: (context, state) => RecurringFormScreen(
-          recurringId: state.pathParameters['id'],
-        ),
+        builder: (context, state) =>
+            RecurringFormScreen(recurringId: state.pathParameters['id']),
       ),
 
       // --- Documents and OCR ------------------------------------------------
@@ -379,16 +381,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/documents/:id',
         parentNavigatorKey: rootKey,
-        builder: (context, state) => DocumentDetailScreen(
-          documentId: state.pathParameters['id']!,
-        ),
+        builder: (context, state) =>
+            DocumentDetailScreen(documentId: state.pathParameters['id']!),
       ),
       GoRoute(
         path: '/ocr/review/:jobId',
         parentNavigatorKey: rootKey,
-        builder: (context, state) => OcrReviewEntryScreen(
-          jobId: state.pathParameters['jobId']!,
-        ),
+        builder: (context, state) =>
+            OcrReviewEntryScreen(jobId: state.pathParameters['jobId']!),
       ),
 
       GoRoute(
@@ -445,9 +445,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
     ],
 
-    errorBuilder: (context, state) => _RouteNotFoundScreen(
-      location: state.uri.toString(),
-    ),
+    errorBuilder: (context, state) =>
+        _RouteNotFoundScreen(location: state.uri.toString()),
   );
 });
 
@@ -519,8 +518,5 @@ DateRange? dateRangeFromQuery(Map<String, String> query) {
   final from = DateTime.tryParse(query['from'] ?? '');
   final to = DateTime.tryParse(query['to'] ?? '');
   if (from == null || to == null) return null;
-  return DateRange(
-    AppDateUtils.startOfDay(from),
-    AppDateUtils.endOfDay(to),
-  );
+  return DateRange(AppDateUtils.startOfDay(from), AppDateUtils.endOfDay(to));
 }

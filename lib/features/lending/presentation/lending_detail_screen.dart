@@ -92,8 +92,8 @@ class _Body extends ConsumerWidget {
                 color: lending.isSettled
                     ? null
                     : lending.kind.isReceivable
-                        ? context.palette.income
-                        : context.palette.danger,
+                    ? context.palette.income
+                    : context.palette.danger,
               ),
               AppSpacing.gapLg,
               ProgressMeter(
@@ -137,6 +137,18 @@ class _Body extends ConsumerWidget {
               ),
             ),
           ),
+        if (!lending.isSettled) ...[
+          AppSpacing.gapMd,
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () =>
+                  context.push('${AppRoutes.lendingDetail(lending.id)}/add'),
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Add amount'),
+            ),
+          ),
+        ],
         AppSpacing.gapLg,
 
         AppCard(
@@ -204,8 +216,9 @@ class _Body extends ConsumerWidget {
                 value: account?.name ?? 'Account removed',
                 onTap: account == null
                     ? null
-                    : () =>
-                        context.push(AppRoutes.accountDetail(lending.accountId)),
+                    : () => context.push(
+                        AppRoutes.accountDetail(lending.accountId),
+                      ),
               ),
               if (lending.dueDate != null) ...[
                 const Divider(height: 1),
@@ -273,17 +286,24 @@ class _HistoryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isPrincipal = transaction.amount == lending.principal &&
+    final description = transaction.description ?? '';
+    final isPrincipal =
         transaction.transferDirection ==
             (lending.kind.isReceivable
                 ? TransferDirection.out
                 : TransferDirection.incoming) &&
-        lending.repaidAmount.isZero;
-    final isInflow = transaction.transferDirection == TransferDirection.incoming;
+        (description.startsWith('Lent to ') ||
+            description.startsWith('Borrowed from ') ||
+            description.startsWith('Additional lending') ||
+            description.startsWith('Additional borrowing'));
+    final isInflow =
+        transaction.transferDirection == TransferDirection.incoming;
 
     return ListTile(
       leading: IconBadge(
-        icon: isInflow ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+        icon: isInflow
+            ? Icons.arrow_downward_rounded
+            : Icons.arrow_upward_rounded,
         color: isInflow ? context.palette.income : context.palette.expense,
         size: 34,
       ),
@@ -380,7 +400,9 @@ class _RepaymentSheetState extends ConsumerState<RepaymentSheet> {
     setState(() => _isSubmitting = true);
 
     try {
-      await ref.read(lendingControllerProvider.notifier).recordRepayment(
+      await ref
+          .read(lendingControllerProvider.notifier)
+          .recordRepayment(
             lending: widget.lending,
             amount: amount,
             date: _date,
@@ -599,7 +621,9 @@ class _LendingMenu extends ConsumerWidget {
       context,
       successMessage: 'Updated',
       action: () async {
-        await ref.read(lendingControllerProvider.notifier).save(
+        await ref
+            .read(lendingControllerProvider.notifier)
+            .save(
               lending.copyWith(
                 personName: nameController.text.trim(),
                 notes: notesController.text.trim().isEmpty
@@ -616,7 +640,8 @@ class _LendingMenu extends ConsumerWidget {
     final confirmed = await AppFeedback.confirm(
       context,
       title: 'Delete this record?',
-      message: 'This also removes every transaction it produced and reverses '
+      message:
+          'This also removes every transaction it produced and reverses '
           'their effect on your account balance.',
       confirmLabel: 'Delete',
       isDestructive: true,

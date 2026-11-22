@@ -37,9 +37,9 @@ class LendingRepository extends BaseRepository {
   }
 
   Stream<List<LendingRecord>> watchAll() => watchList(
-        _col.orderBy('created_at', descending: true),
-        LendingRecord.fromJson,
-      );
+    _col.orderBy('created_at', descending: true),
+    LendingRecord.fromJson,
+  );
 
   Future<LendingRecord> fetchById(String id) =>
       fetchDoc(_col.doc(id), LendingRecord.fromJson);
@@ -57,170 +57,335 @@ class LendingRepository extends BaseRepository {
     DateTime? date,
     String? notes,
     DateTime? dueDate,
-  }) =>
-      guard(() async {
-        final name = personName.trim();
-        if (name.isEmpty) {
-          throw const ValidationException('Enter who this is with.');
-        }
-        if (principal.isZero || principal.isNegative) {
-          throw const ValidationException(
-            'The amount must be greater than zero.',
-          );
-        }
+  }) => guard(() async {
+    final name = personName.trim();
+    if (name.isEmpty) {
+      throw const ValidationException('Enter who this is with.');
+    }
+    if (principal.isZero || principal.isNegative) {
+      throw const ValidationException('The amount must be greater than zero.');
+    }
 
-        final transferred = transferAmount ?? principal;
-        if (transferred.isZero || transferred.isNegative) {
-          throw const ValidationException(
-            'The transfer amount must be greater than zero.',
-          );
-        }
+    final transferred = transferAmount ?? principal;
+    if (transferred.isZero || transferred.isNegative) {
+      throw const ValidationException(
+        'The transfer amount must be greater than zero.',
+      );
+    }
 
-        // The charge rule is enforced here, not only by hiding the fields:
-        // a stale value left over from a method the user switched away from
-        // must never reach the ledger as a fee.
-        final chargeAllowed = kind.isReceivable && method.allowsAdditionalCharge;
-        final charge =
-            chargeAllowed && additionalCharge != null && !additionalCharge.isZero
-                ? additionalCharge
-                : null;
+    // The charge rule is enforced here, not only by hiding the fields:
+    // a stale value left over from a method the user switched away from
+    // must never reach the ledger as a fee.
+    final chargeAllowed = kind.isReceivable && method.allowsAdditionalCharge;
+    final charge =
+        chargeAllowed && additionalCharge != null && !additionalCharge.isZero
+        ? additionalCharge
+        : null;
 
-        if (charge != null && charge.isNegative) {
-          throw const ValidationException(
-            'The additional charge cannot be negative.',
-          );
-        }
+    if (charge != null && charge.isNegative) {
+      throw const ValidationException(
+        'The additional charge cannot be negative.',
+      );
+    }
 
-        final chargeNote = charge == null
-            ? null
-            : (chargeDescription?.trim().isNotEmpty ?? false)
-                ? chargeDescription!.trim()
-                : _defaultChargeDescription;
+    final chargeNote = charge == null
+        ? null
+        : (chargeDescription?.trim().isNotEmpty ?? false)
+        ? chargeDescription!.trim()
+        : _defaultChargeDescription;
 
-        final occurredOn = date ?? DateTime.now();
-        final ref = _col.doc();
-        final txRef = FirebaseService.transactions(userId).doc();
-        final feeRef =
-            charge == null ? null : FirebaseService.transactions(userId).doc();
+    final occurredOn = date ?? DateTime.now();
+    final ref = _col.doc();
+    final txRef = FirebaseService.transactions(userId).doc();
+    final feeRef = charge == null
+        ? null
+        : FirebaseService.transactions(userId).doc();
 
-        // You handed the money over when you lent it; you received it when
-        // you borrowed — the same direction the principal's leg takes.
-        final direction = kind.isReceivable
-            ? TransferDirection.out
-            : TransferDirection.incoming;
+    // You handed the money over when you lent it; you received it when
+    // you borrowed — the same direction the principal's leg takes.
+    final direction = kind.isReceivable
+        ? TransferDirection.out
+        : TransferDirection.incoming;
 
-        // Read before the Firestore transaction: the client SDK cannot run a
-        // query inside one, and the fee is a real expense that has to land in
-        // the budgets like any other.
-        final budgets = charge == null ? const <Budget>[] : await _activeBudgets();
-        final feeCategoryId = charge == null ? null : await _feeCategoryId();
+    // Read before the Firestore transaction: the client SDK cannot run a
+    // query inside one, and the fee is a real expense that has to land in
+    // the budgets like any other.
+    final budgets = charge == null ? const <Budget>[] : await _activeBudgets();
+    final feeCategoryId = charge == null ? null : await _feeCategoryId();
 
-        await db.runTransaction((tx) async {
-          final account =
-              await tx.get(FirebaseService.accounts(userId).doc(accountId));
-          if (!account.exists) throw const NotFoundException();
+    await db.runTransaction((tx) async {
+      final account = await tx.get(
+        FirebaseService.accounts(userId).doc(accountId),
+      );
+      if (!account.exists) throw const NotFoundException();
 
-          tx.set(ref, {
-            'person_name': name,
-            'kind': kind.wire,
-            ...moneyFields('principal', principal),
-            ...moneyFields('outstanding', principal, withCurrency: false),
-            ...moneyFields('transfer_amount', transferred,
-                withCurrency: false),
-            ...moneyFields('additional_charge', charge, withCurrency: false),
-            'account_id': accountId,
-            'method': method.wire,
-            'charge_description': chargeNote,
-            'fee_transaction_id': feeRef?.id,
-            'notes': notes,
-            'due_date': dueDate == null ? null : dateOnly(dueDate),
-            'user_id': userId,
-            ...createdFields(),
-          });
-
-          // The principal leg moves what the other party actually received.
-          tx.set(txRef, {
-            'user_id': userId,
-            'account_id': accountId,
-            'category_id': null,
-            'type': TransactionType.transfer.wire,
-            ...moneyFields('amount', transferred),
-            'description':
-                kind.isReceivable ? 'Lent to $name' : 'Borrowed from $name',
-            'merchant': null,
-            'payment_method': method.asPaymentMethod.wire,
-            'transaction_date': Timestamp.fromDate(occurredOn),
-            'notes': notes,
-            'document_id': null,
-            'source': TransactionSource.manual.wire,
-            'status': TransactionStatus.confirmed.wire,
-            'transfer_group_id': null,
-            'transfer_direction': direction.wire,
-            'transfer_peer_account_id': null,
-            'lending_id': ref.id,
-            'is_split': false,
-            'search_terms': searchTerms([name, notes]),
-            ...createdFields(),
-          });
-
-          tx.update(FirebaseService.accounts(userId).doc(accountId), {
-            minorKey('current_balance'): FieldValue.increment(
-              direction == TransferDirection.incoming
-                  ? transferred.minorUnits
-                  : -transferred.minorUnits,
-            ),
-            ...updatedFields(),
-          });
-
-          if (feeRef == null || charge == null) return;
-
-          // The bank's cut is your own expense, not the borrower's debt: it
-          // is a real EXPENSE transaction so it counts in the rollups and
-          // budgets, while the outstanding balance above stays untouched.
-          tx.set(feeRef, {
-            'user_id': userId,
-            'account_id': accountId,
-            'category_id': feeCategoryId,
-            'type': TransactionType.expense.wire,
-            ...moneyFields('amount', charge),
-            'description': chargeNote,
-            'merchant': null,
-            'payment_method': PaymentMethod.bankTransfer.wire,
-            'transaction_date': Timestamp.fromDate(occurredOn),
-            'notes': null,
-            'document_id': null,
-            'source': TransactionSource.manual.wire,
-            'status': TransactionStatus.confirmed.wire,
-            'transfer_group_id': null,
-            'reference_number': null,
-            'lending_id': ref.id,
-            'is_split': false,
-            'search_terms': searchTerms([chargeNote, name]),
-            ...createdFields(),
-          });
-
-          LedgerWriter.apply(
-            tx,
-            userId: userId,
-            before: null,
-            after: LedgerEffect(
-              accountId: accountId,
-              categoryId: feeCategoryId,
-              type: TransactionType.expense,
-              status: TransactionStatus.confirmed,
-              currency: charge.currency,
-              amountMinor: charge.minorUnits.abs(),
-              date: occurredOn,
-              merchant: null,
-              paymentMethod: PaymentMethod.bankTransfer.wire,
-              transferDirection: null,
-            ),
-            budgets: budgets,
-          );
-        });
-
-        return fetchById(ref.id);
+      tx.set(ref, {
+        'person_name': name,
+        'kind': kind.wire,
+        ...moneyFields('principal', principal),
+        ...moneyFields('outstanding', principal, withCurrency: false),
+        ...moneyFields('transfer_amount', transferred, withCurrency: false),
+        ...moneyFields('additional_charge', charge, withCurrency: false),
+        'account_id': accountId,
+        'method': method.wire,
+        'charge_description': chargeNote,
+        'fee_transaction_id': feeRef?.id,
+        'notes': notes,
+        'due_date': dueDate == null ? null : dateOnly(dueDate),
+        'user_id': userId,
+        ...createdFields(),
       });
+
+      // The principal leg moves what the other party actually received.
+      tx.set(txRef, {
+        'user_id': userId,
+        'account_id': accountId,
+        'category_id': null,
+        'type': TransactionType.transfer.wire,
+        ...moneyFields('amount', transferred),
+        'description': kind.isReceivable
+            ? 'Lent to $name'
+            : 'Borrowed from $name',
+        'merchant': null,
+        'payment_method': method.asPaymentMethod.wire,
+        'transaction_date': Timestamp.fromDate(occurredOn),
+        'notes': notes,
+        'document_id': null,
+        'source': TransactionSource.manual.wire,
+        'status': TransactionStatus.confirmed.wire,
+        'transfer_group_id': null,
+        'transfer_direction': direction.wire,
+        'transfer_peer_account_id': null,
+        'lending_id': ref.id,
+        'is_split': false,
+        'search_terms': searchTerms([name, notes]),
+        ...createdFields(),
+      });
+
+      tx.update(FirebaseService.accounts(userId).doc(accountId), {
+        minorKey('current_balance'): FieldValue.increment(
+          direction == TransferDirection.incoming
+              ? transferred.minorUnits
+              : -transferred.minorUnits,
+        ),
+        ...updatedFields(),
+      });
+
+      if (feeRef == null || charge == null) return;
+
+      // The bank's cut is your own expense, not the borrower's debt: it
+      // is a real EXPENSE transaction so it counts in the rollups and
+      // budgets, while the outstanding balance above stays untouched.
+      tx.set(feeRef, {
+        'user_id': userId,
+        'account_id': accountId,
+        'category_id': feeCategoryId,
+        'type': TransactionType.expense.wire,
+        ...moneyFields('amount', charge),
+        'description': chargeNote,
+        'merchant': null,
+        'payment_method': PaymentMethod.bankTransfer.wire,
+        'transaction_date': Timestamp.fromDate(occurredOn),
+        'notes': null,
+        'document_id': null,
+        'source': TransactionSource.manual.wire,
+        'status': TransactionStatus.confirmed.wire,
+        'transfer_group_id': null,
+        'reference_number': null,
+        'lending_id': ref.id,
+        'is_split': false,
+        'search_terms': searchTerms([chargeNote, name]),
+        ...createdFields(),
+      });
+
+      LedgerWriter.apply(
+        tx,
+        userId: userId,
+        before: null,
+        after: LedgerEffect(
+          accountId: accountId,
+          categoryId: feeCategoryId,
+          type: TransactionType.expense,
+          status: TransactionStatus.confirmed,
+          currency: charge.currency,
+          amountMinor: charge.minorUnits.abs(),
+          date: occurredOn,
+          merchant: null,
+          paymentMethod: PaymentMethod.bankTransfer.wire,
+          transferDirection: null,
+        ),
+        budgets: budgets,
+      );
+    });
+
+    return fetchById(ref.id);
+  });
+
+  /// Adds another principal movement to an existing lending record while
+  /// preserving the original record's account and method details.
+  Future<LendingRecord> addAmount({
+    required LendingRecord lending,
+    required Money principal,
+    required String accountId,
+    required LendingMethod method,
+    Money? transferAmount,
+    Money? additionalCharge,
+    String? chargeDescription,
+    DateTime? date,
+    String? notes,
+    DateTime? dueDate,
+  }) => guard(() async {
+    if (principal.isZero || principal.isNegative) {
+      throw const ValidationException('The amount must be greater than zero.');
+    }
+
+    final transferred = transferAmount ?? principal;
+    if (transferred.isZero || transferred.isNegative) {
+      throw const ValidationException(
+        'The transfer amount must be greater than zero.',
+      );
+    }
+
+    if (principal.currency != lending.currency ||
+        transferred.currency != lending.currency) {
+      throw const ValidationException(
+        'The amount must use the lending currency.',
+      );
+    }
+
+    final chargeAllowed =
+        lending.kind.isReceivable && method.allowsAdditionalCharge;
+    final charge =
+        chargeAllowed && additionalCharge != null && !additionalCharge.isZero
+        ? additionalCharge
+        : null;
+    if (charge != null && charge.isNegative) {
+      throw const ValidationException(
+        'The additional charge cannot be negative.',
+      );
+    }
+
+    final chargeNote = charge == null
+        ? null
+        : (chargeDescription?.trim().isNotEmpty ?? false)
+        ? chargeDescription!.trim()
+        : _defaultChargeDescription;
+    final occurredOn = date ?? DateTime.now();
+    final lendingRef = _col.doc(lending.id);
+    final txRef = FirebaseService.transactions(userId).doc();
+    final feeRef = charge == null
+        ? null
+        : FirebaseService.transactions(userId).doc();
+    final direction = lending.kind.isReceivable
+        ? TransferDirection.out
+        : TransferDirection.incoming;
+    final budgets = charge == null ? const <Budget>[] : await _activeBudgets();
+    final feeCategoryId = charge == null ? null : await _feeCategoryId();
+
+    await db.runTransaction((tx) async {
+      final current = await tx.get(lendingRef);
+      if (!current.exists) throw const NotFoundException();
+      final accountRef = FirebaseService.accounts(userId).doc(accountId);
+      final account = await tx.get(accountRef);
+      if (!account.exists) throw const NotFoundException();
+
+      final currentData = current.asJson;
+      final currentPrincipal = currentData.money('principal');
+      final currentOutstanding = currentData.money('outstanding');
+      final accountCurrency = account.asJson.str('currency');
+      if (currentPrincipal.currency != principal.currency ||
+          accountCurrency != lending.currency) {
+        throw const ValidationException(
+          'Choose an account in the lending currency.',
+        );
+      }
+
+      tx.update(lendingRef, {
+        minorKey('principal'): (currentPrincipal + principal).minorUnits,
+        minorKey('outstanding'): (currentOutstanding + principal).minorUnits,
+        'due_date': dueDate == null ? null : dateOnly(dueDate),
+        ...updatedFields(),
+      });
+
+      tx.set(txRef, {
+        'user_id': userId,
+        'account_id': accountId,
+        'category_id': null,
+        'type': TransactionType.transfer.wire,
+        ...moneyFields('amount', transferred),
+        'description': lending.kind.isReceivable
+            ? 'Additional lending to ${lending.personName}'
+            : 'Additional borrowing from ${lending.personName}',
+        'merchant': null,
+        'payment_method': method.asPaymentMethod.wire,
+        'transaction_date': Timestamp.fromDate(occurredOn),
+        'notes': notes,
+        'document_id': null,
+        'source': TransactionSource.manual.wire,
+        'status': TransactionStatus.confirmed.wire,
+        'transfer_group_id': null,
+        'transfer_direction': direction.wire,
+        'transfer_peer_account_id': null,
+        'lending_id': lending.id,
+        'is_split': false,
+        'search_terms': searchTerms([lending.personName, notes]),
+        ...createdFields(),
+      });
+
+      tx.update(accountRef, {
+        minorKey('current_balance'): FieldValue.increment(
+          direction == TransferDirection.incoming
+              ? transferred.minorUnits
+              : -transferred.minorUnits,
+        ),
+        ...updatedFields(),
+      });
+
+      if (feeRef == null || charge == null) return;
+      tx.set(feeRef, {
+        'user_id': userId,
+        'account_id': accountId,
+        'category_id': feeCategoryId,
+        'type': TransactionType.expense.wire,
+        ...moneyFields('amount', charge),
+        'description': chargeNote,
+        'merchant': null,
+        'payment_method': PaymentMethod.bankTransfer.wire,
+        'transaction_date': Timestamp.fromDate(occurredOn),
+        'notes': null,
+        'document_id': null,
+        'source': TransactionSource.manual.wire,
+        'status': TransactionStatus.confirmed.wire,
+        'transfer_group_id': null,
+        'reference_number': null,
+        'lending_id': lending.id,
+        'is_split': false,
+        'search_terms': searchTerms([chargeNote, lending.personName]),
+        ...createdFields(),
+      });
+
+      LedgerWriter.apply(
+        tx,
+        userId: userId,
+        before: null,
+        after: LedgerEffect(
+          accountId: accountId,
+          categoryId: feeCategoryId,
+          type: TransactionType.expense,
+          status: TransactionStatus.confirmed,
+          currency: charge.currency,
+          amountMinor: charge.minorUnits.abs(),
+          date: occurredOn,
+          merchant: null,
+          paymentMethod: PaymentMethod.bankTransfer.wire,
+          transferDirection: null,
+        ),
+        budgets: budgets,
+      );
+    });
+
+    return fetchById(lending.id);
+  });
 
   /// The default wording for a bank transfer charge, when the user does not
   /// replace it.
@@ -260,115 +425,114 @@ class LendingRepository extends BaseRepository {
     DateTime? date,
     String? notes,
     String? accountId,
-  }) =>
-      guard(() async {
-        if (amount.isZero || amount.isNegative) {
-          throw const ValidationException(
-            'Enter an amount greater than zero.',
-          );
-        }
-        if (lending.isSettled) {
-          throw const ValidationException('This is already fully settled.');
-        }
+  }) => guard(() async {
+    if (amount.isZero || amount.isNegative) {
+      throw const ValidationException('Enter an amount greater than zero.');
+    }
+    if (lending.isSettled) {
+      throw const ValidationException('This is already fully settled.');
+    }
 
-        // Repaid money does not have to land back in the same account the
-        // principal left from — the friend might hand over cash instead of a
-        // bank transfer, say. Defaults to the original account when the
-        // caller does not choose one.
-        final targetAccountId = accountId ?? lending.accountId;
+    // Repaid money does not have to land back in the same account the
+    // principal left from — the friend might hand over cash instead of a
+    // bank transfer, say. Defaults to the original account when the
+    // caller does not choose one.
+    final targetAccountId = accountId ?? lending.accountId;
 
-        final occurredOn = date ?? DateTime.now();
-        final txRef = FirebaseService.transactions(userId).doc();
-        final lendingRef = _col.doc(lending.id);
-        final accountRef = FirebaseService.accounts(userId).doc(targetAccountId);
+    final occurredOn = date ?? DateTime.now();
+    final txRef = FirebaseService.transactions(userId).doc();
+    final lendingRef = _col.doc(lending.id);
+    final accountRef = FirebaseService.accounts(userId).doc(targetAccountId);
 
-        // Being paid back moves money in; paying back what you borrowed moves
-        // it out — the opposite of the principal's own direction.
-        final direction = lending.kind.isReceivable
-            ? TransferDirection.incoming
-            : TransferDirection.out;
+    // Being paid back moves money in; paying back what you borrowed moves
+    // it out — the opposite of the principal's own direction.
+    final direction = lending.kind.isReceivable
+        ? TransferDirection.incoming
+        : TransferDirection.out;
 
-        await db.runTransaction((tx) async {
-          final snapshot = await tx.get(lendingRef);
-          if (!snapshot.exists) throw const NotFoundException();
+    await db.runTransaction((tx) async {
+      final snapshot = await tx.get(lendingRef);
+      if (!snapshot.exists) throw const NotFoundException();
 
-          final account = await tx.get(accountRef);
-          if (!account.exists) throw const NotFoundException();
+      final account = await tx.get(accountRef);
+      if (!account.exists) throw const NotFoundException();
 
-          final accountCurrency =
-              account.asJson.str('currency', fallback: amount.currency);
-          if (accountCurrency != amount.currency) {
-            throw ValidationException(
-              'That account holds $accountCurrency. Choose an account in '
-              '${amount.currency} instead.',
-            );
-          }
+      final accountCurrency = account.asJson.str(
+        'currency',
+        fallback: amount.currency,
+      );
+      if (accountCurrency != amount.currency) {
+        throw ValidationException(
+          'That account holds $accountCurrency. Choose an account in '
+          '${amount.currency} instead.',
+        );
+      }
 
-          final outstanding = snapshot.asJson.money('outstanding');
-          if (amount > outstanding) {
-            throw ValidationException(
-              'At most ${outstanding.format()} is still outstanding.',
-            );
-          }
+      final outstanding = snapshot.asJson.money('outstanding');
+      if (amount > outstanding) {
+        throw ValidationException(
+          'At most ${outstanding.format()} is still outstanding.',
+        );
+      }
 
-          tx.update(lendingRef, {
-            minorKey('outstanding'): (outstanding - amount).minorUnits,
-            ...updatedFields(),
-          });
-
-          tx.set(txRef, {
-            'user_id': userId,
-            'account_id': targetAccountId,
-            'category_id': null,
-            'type': TransactionType.transfer.wire,
-            ...moneyFields('amount', amount),
-            'description': lending.kind.isReceivable
-                ? 'Repaid by ${lending.personName}'
-                : 'Repaid to ${lending.personName}',
-            'merchant': null,
-            'payment_method': null,
-            'transaction_date': Timestamp.fromDate(occurredOn),
-            'notes': notes,
-            'document_id': null,
-            'source': TransactionSource.manual.wire,
-            'status': TransactionStatus.confirmed.wire,
-            'transfer_group_id': null,
-            'transfer_direction': direction.wire,
-            'transfer_peer_account_id': null,
-            'lending_id': lending.id,
-            'is_split': false,
-            'search_terms': searchTerms([lending.personName, notes]),
-            ...createdFields(),
-          });
-
-          tx.update(accountRef, {
-            minorKey('current_balance'): FieldValue.increment(
-              direction == TransferDirection.incoming
-                  ? amount.minorUnits
-                  : -amount.minorUnits,
-            ),
-            ...updatedFields(),
-          });
-        });
+      tx.update(lendingRef, {
+        minorKey('outstanding'): (outstanding - amount).minorUnits,
+        ...updatedFields(),
       });
+
+      tx.set(txRef, {
+        'user_id': userId,
+        'account_id': targetAccountId,
+        'category_id': null,
+        'type': TransactionType.transfer.wire,
+        ...moneyFields('amount', amount),
+        'description': lending.kind.isReceivable
+            ? 'Repaid by ${lending.personName}'
+            : 'Repaid to ${lending.personName}',
+        'merchant': null,
+        'payment_method': null,
+        'transaction_date': Timestamp.fromDate(occurredOn),
+        'notes': notes,
+        'document_id': null,
+        'source': TransactionSource.manual.wire,
+        'status': TransactionStatus.confirmed.wire,
+        'transfer_group_id': null,
+        'transfer_direction': direction.wire,
+        'transfer_peer_account_id': null,
+        'lending_id': lending.id,
+        'is_split': false,
+        'search_terms': searchTerms([lending.personName, notes]),
+        ...createdFields(),
+      });
+
+      tx.update(accountRef, {
+        minorKey('current_balance'): FieldValue.increment(
+          direction == TransferDirection.incoming
+              ? amount.minorUnits
+              : -amount.minorUnits,
+        ),
+        ...updatedFields(),
+      });
+    });
+  });
 
   /// Edits the name, note or due date. The principal, the account and who
   /// owes whom are fixed once a real transaction has moved against them.
   Future<LendingRecord> update(LendingRecord lending) => guard(() async {
-        await _col.doc(lending.id).update({
-          ...lending.toUpdateJson(),
-          ...updatedFields(),
-        });
-        return fetchById(lending.id);
-      });
+    await _col.doc(lending.id).update({
+      ...lending.toUpdateJson(),
+      ...updatedFields(),
+    });
+    return fetchById(lending.id);
+  });
 
   /// Every transaction this record produced, most recent first.
   Future<List<Transaction>> fetchHistory(String lendingId) => fetchList(
-        FirebaseService.transactions(userId)
-            .where('lending_id', isEqualTo: lendingId)
-            .orderBy('transaction_date', descending: true),
-        Transaction.fromJson,
-      );
+    FirebaseService.transactions(userId)
+        .where('lending_id', isEqualTo: lendingId)
+        .orderBy('transaction_date', descending: true),
+    Transaction.fromJson,
+  );
 
   /// Deletes a lending record and every transaction it produced, reversing
   /// each one's balance effect.
@@ -378,44 +542,44 @@ class LendingRepository extends BaseRepository {
   /// leave the account balance wrong. Deleting here is an explicit undo, not a
   /// tidy-up, so every leg is reversed rather than left behind.
   Future<void> delete(String id) => guard(() async {
-        final history = await FirebaseService.transactions(userId)
-            .where('lending_id', isEqualTo: id)
-            .get();
+    final history = await FirebaseService.transactions(
+      userId,
+    ).where('lending_id', isEqualTo: id).get();
 
-        // A fee leg is a real expense, so reversing it has to put the rollups
-        // and budgets back too — which needs the budgets read up front.
-        final hasFeeLeg = history.docs.any((doc) =>
-            TransactionType.fromWire(doc.asJson.strOrNull('type')) !=
-            TransactionType.transfer);
-        final budgets = hasFeeLeg ? await _activeBudgets() : const <Budget>[];
+    // A fee leg is a real expense, so reversing it has to put the rollups
+    // and budgets back too — which needs the budgets read up front.
+    final hasFeeLeg = history.docs.any(
+      (doc) =>
+          TransactionType.fromWire(doc.asJson.strOrNull('type')) !=
+          TransactionType.transfer,
+    );
+    final budgets = hasFeeLeg ? await _activeBudgets() : const <Budget>[];
 
-        await db.runTransaction((tx) async {
-          for (final doc in history.docs) {
-            final before = LedgerWriter.effectOf(doc.asJson);
-            tx.delete(doc.reference);
-            if (before == null) continue;
+    await db.runTransaction((tx) async {
+      for (final doc in history.docs) {
+        final before = LedgerWriter.effectOf(doc.asJson);
+        tx.delete(doc.reference);
+        if (before == null) continue;
 
-            if (before.type.isTransfer) {
-              if (!before.counts) continue;
-              tx.update(
-                FirebaseService.accounts(userId).doc(before.accountId),
-                {
-                  minorKey('current_balance'):
-                      FieldValue.increment(-before.signedMinor),
-                  ...updatedFields(),
-                },
-              );
-            } else {
-              LedgerWriter.apply(
-                tx,
-                userId: userId,
-                before: before,
-                after: null,
-                budgets: budgets,
-              );
-            }
-          }
-          tx.delete(_col.doc(id));
-        });
-      });
+        if (before.type.isTransfer) {
+          if (!before.counts) continue;
+          tx.update(FirebaseService.accounts(userId).doc(before.accountId), {
+            minorKey('current_balance'): FieldValue.increment(
+              -before.signedMinor,
+            ),
+            ...updatedFields(),
+          });
+        } else {
+          LedgerWriter.apply(
+            tx,
+            userId: userId,
+            before: before,
+            after: null,
+            budgets: budgets,
+          );
+        }
+      }
+      tx.delete(_col.doc(id));
+    });
+  });
 }
